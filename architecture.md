@@ -17,7 +17,7 @@ cli.py (scan/watch/list) ──► screener.py ── dla każdego WatchItem:
 | `client.py` | HTTP do Vinted. Wyszukiwanie to `https://api.<domena>/svc-catalogue/items` (od 09.2026; stare `www…/api/v2/catalog/items` daje 404). Tożsamość ze strony głównej: ciasteczko `access_token_web` + nagłówek `X-Anon-Id` (+ `<html lang>` jako `Locale`). Token wysyłany jawnie w `Cookie`, słoik curl_cffi czyszczony, żeby nie było dwóch nagłówków. Throttling, retry 429/5xx, odświeżenie sesji przy 401/403, paginacja, `--debug`. Jedyne miejsce, które zna URL-e API. |
 | `models.py` | `Listing.from_api` (parsuje oba formaty ceny: obiekt i string), `Deal`, `normalize()` (bez polskich znaków i interpunkcji), wagi stanów. |
 | `watchlist.py` | Wczytanie i walidacja TOML, DSL fraz (`a\|b`, `prefix*`, sklejanie słów), dopasowanie marki, globalne wykluczenia (repliki, pudełka, dzieci…), `size_matches`. |
-| `screener.py` | Logika okazji: okno cenowe, filtry, mediana rynkowa, `deal_score`. Klient wstrzykiwany, więc testy go podmieniają. |
+| `screener.py` | Logika okazji: okno cenowe, filtry, mediana rynkowa, `deal_score`. Liczy lejek odrzuceń (`ScanResult.funnel`, pokazywany w podsumowaniu) i w `--debug` wypisuje pola oraz przykłady surowych ogłoszeń. Klient wstrzykiwany, więc testy go podmieniają. |
 | `state.py` | `.vinted-screener/state.json`: widziane ID (tryb watch, TTL 14 dni) i cache median (TTL z ustawień). |
 | `report.py` | Wypisywanie w terminalu, JSON i samodzielny HTML (dane jako JSON w `<script>`, renderowane w JS). |
 | `notify.py` | Payloady Discorda (maks. 10 embedów na wiadomość). |

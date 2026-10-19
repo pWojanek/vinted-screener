@@ -3,7 +3,7 @@ from __future__ import annotations
 from conftest import make_item, raw_item
 
 from vinted_screener.client import VintedError
-from vinted_screener.screener import Filters, Screener, deal_score
+from vinted_screener.screener import Filters, Screener, deal_score, describe_funnel
 from vinted_screener.state import State
 from vinted_screener.watchlist import Settings
 
@@ -40,8 +40,8 @@ def test_finds_deals_below_threshold(dunk):
         ],
         MARKET,
     )
-    deals, fetched = screener(client).screen_item(dunk)
-    assert fetched == 3
+    deals, funnel = screener(client).screen_item(dunk)
+    assert funnel == {"fetched": 3, "price": 1, "model": 1}
     assert [d.listing.id for d in deals] == [1]
     deal = deals[0]
     assert round(deal.retail_discount, 3) == round(1 - 158.2 / 500, 3)
@@ -145,3 +145,18 @@ def test_condition_outside_status_ids_is_skipped_even_if_api_ignores_filter(dunk
     ]
     deals, _ = screener(FakeClient(candidates), use_market=False).screen_item(dunk)
     assert sorted(d.listing.id for d in deals) == [2, 3]
+
+
+def test_funnel_explains_why_nothing_matched(dunk):
+    eur = raw_item("Nike Dunk Low", 50, id=1)
+    eur["price"]["currency_code"] = "EUR"
+    candidates = [eur, raw_item("Nike Dunk Low", 60, id=2), raw_item("Nike Dunk Low", 150, id=3, size="44")]
+    lines: list[str] = []
+    result = screener(
+        FakeClient(candidates), filters=Filters(sizes=("42",)), use_market=False, debug=lines.append
+    ).screen([dunk])
+    assert result.deals == []
+    assert describe_funnel(result.funnel) == "waluta EUR 1 · podejrzanie tanie 1 · inny rozmiar 1"
+    assert any("okno cen 100–250" in l and "pobrano 3" in l for l in lines)
+    assert any(l.startswith("pola ogłoszenia w API:") and "brand_title" in l for l in lines)
+    assert any("przykład: 'Nike Dunk Low' | marka='Nike'" in l and "60.0 PLN" in l for l in lines)

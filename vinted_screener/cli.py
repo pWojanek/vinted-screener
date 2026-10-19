@@ -15,7 +15,7 @@ from vinted_screener.client import VintedClient
 from vinted_screener.models import normalize
 from vinted_screener.notify import send_discord
 from vinted_screener.report import SORT_KEYS, enable_windows_ansi, money, print_deals, sort_deals, write_html, write_json
-from vinted_screener.screener import Filters, ScanResult, Screener
+from vinted_screener.screener import Filters, ScanResult, Screener, describe_funnel
 from vinted_screener.state import State
 from vinted_screener.watchlist import Settings, WatchItem, WatchlistError, load_watchlist
 
@@ -96,7 +96,7 @@ def _make_screener(args: argparse.Namespace, settings: Settings, state: State) -
     log = (lambda msg: None) if args.quiet else (lambda msg: print(msg, file=sys.stderr, flush=True))
     debug = (lambda msg: print(f"  [debug] {msg}", file=sys.stderr, flush=True)) if args.debug else None
     client = VintedClient(domain=settings.domain, delay=settings.delay, debug=debug)
-    return Screener(client, settings, filters=filters, state=state, use_market=not args.no_market, log=log)
+    return Screener(client, settings, filters=filters, state=state, use_market=not args.no_market, log=log, debug=debug)
 
 
 def _write_outputs(args: argparse.Namespace, result: ScanResult) -> None:
@@ -119,6 +119,10 @@ def _summary(result: ScanResult, args: argparse.Namespace) -> str:
         text += f" · {len(result.errors)} błędów"
     if args.html:
         text += f" · raport: {Path(args.html).resolve()}"
+    if funnel := describe_funnel(result.funnel):
+        text += f"\nodpadło: {funnel}"
+    if result.listings_seen and not result.deals and not args.debug:
+        text += "\nbrak okazji — przykładowe ogłoszenia z API pokaże: scan --only <model> --debug"
     return text
 
 

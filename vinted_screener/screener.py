@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import statistics
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -13,6 +14,38 @@ from vinted_screener.watchlist import Settings, WatchItem, size_matches
 
 MIN_MARKET_SAMPLES = 5
 MAX_CONSECUTIVE_ERRORS = 3  # Vinted niedostępny albo blokuje — nie ma sensu męczyć kolejnych modeli
+
+# Etapy, na których odpadają ogłoszenia — pokazywane w podsumowaniu, żeby było widać, czemu nie ma okazji.
+REJECT_LABELS = {
+    "unparsed": "bez ceny",
+    "condition": "inny stan",
+    "model": "inny model/marka",
+    "duplicate": "duplikat",
+    "size": "inny rozmiar",
+    "price": "za drogie",
+    "suspicious": "podejrzanie tanie",
+    "market": "za drogie vs Vinted",
+}
+
+
+def describe_funnel(funnel: Counter[str]) -> str:
+    parts = []
+    for key, count in funnel.most_common():
+        if key.startswith("currency:"):
+            parts.append(f"waluta {key.split(':', 1)[1]} {count}")
+        elif key in REJECT_LABELS:
+            parts.append(f"{REJECT_LABELS[key]} {count}")
+    return " · ".join(parts)
+
+
+def _sample(raw: dict) -> str:
+    price = raw.get("price")
+    if isinstance(price, dict):
+        price = f"{price.get('amount')} {price.get('currency_code')}"
+    return (
+        f"{raw.get('title')!r} | marka={raw.get('brand_title')!r} | stan={raw.get('status')!r}"
+        f" | rozmiar={raw.get('size_title')!r} | cena={price}"
+    )
 
 
 def deal_score(retail_discount: float, market_discount: float | None, condition: str) -> float:
@@ -33,6 +66,7 @@ class ScanResult:
     errors: dict[str, str] = field(default_factory=dict)
     scanned_items: int = 0
     listings_seen: int = 0
+    funnel: Counter[str] = field(default_factory=Counter)
 
 
 @dataclass(frozen=True)
@@ -53,6 +87,7 @@ class Screener:
         state: State | None = None,
         use_market: bool = True,
         log: Callable[[str], None] = lambda msg: None,
+        debug: Callable[[str], None] | None = None,
     ) -> None:
         self.client = client
         self.settings = settings
@@ -60,18 +95,24 @@ class Screener:
         self.state = state or State()
         self.use_market = use_market
         self.log = log
+        self.debug = debug
+        self._shown_keys = False
 
-    def _parse(self, item: WatchItem, raw_items: list[dict]) -> list[Listing]:
+    def _parse(self, item: WatchItem, raw_items: list[dict], funnel: Counter[str] | None = None) -> list[Listing]:
+        funnel = funnel if funnel is not None else Counter()
         listings = []
         for raw in raw_items:
             listing = Listing.from_api(raw)
-            if listing is None or (listing.currency and listing.currency != self.settings.currency):
-                continue
+            if listing is None:
+                funnel["unparsed"] += 1
+            elif listing.currency and listing.currency != self.settings.currency:
+                funnel[f"currency:{listing.currency}"] += 1
             # zabezpieczenie na wypadek, gdyby API zignorowało filtr stanu
-            status_id = condition_status_id(listing.condition)
-            if status_id is not None and status_id not in item.status_ids:
-                continue
-            if item.matches(listing):
+            elif (status_id := condition_status_id(listing.condition)) is not None and status_id not in item.status_ids:
+                funnel["condition"] += 1
+            elif not item.matches(listing):
+                funnel["model"] += 1
+            else:
                 listings.append(listing)
         return listings
 
@@ -92,7 +133,8 @@ class Screener:
         self.state.store_market(key, median, len(prices))
         return median
 
-    def screen_item(self, item: WatchItem) -> tuple[list[Deal], int]:
+    def screen_item(self, item: WatchItem) -> tuple[list[Deal], Counter[str]]:
+        """Okazje dla jednego modelu + lejek: ile pobrano ("fetched") i ile odpadło na którym etapie."""
         min_discount = self.filters.min_discount if self.filters.min_discount is not None else item.min_discount
         price_to = item.retail * (1 - min_discount)
         if self.filters.max_price is not None:
@@ -107,26 +149,34 @@ class Screener:
             pages=self.settings.pages,
             per_page=self.settings.per_page,
         )
-        listings = self._parse(item, raw)
+        funnel: Counter[str] = Counter(fetched=len(raw))
+        listings = self._parse(item, raw, funnel)
         median = self.market_median(item) if self.use_market and listings else None
         sizes = self.filters.sizes or self.settings.sizes
 
         deals = []
         seen_ids = set()
         for listing in listings:
-            if listing.id in seen_ids or not size_matches(listing.size, sizes):
+            if listing.id in seen_ids:
+                funnel["duplicate"] += 1
                 continue
             seen_ids.add(listing.id)
+            if not size_matches(listing.size, sizes):
+                funnel["size"] += 1
+                continue
             if listing.total_price > price_to:
+                funnel["price"] += 1
                 continue
             retail_discount = 1 - listing.total_price / item.retail
             suspicious = listing.total_price < item.suspicious_price
             if suspicious and not self.filters.show_suspicious:
+                funnel["suspicious"] += 1
                 continue
             market_discount = 1 - listing.total_price / median if median else None
             if self.filters.min_market_discount is not None and (
                 market_discount is None or market_discount < self.filters.min_market_discount
             ):
+                funnel["market"] += 1
                 continue
             deals.append(
                 Deal(
@@ -139,7 +189,21 @@ class Screener:
                     suspicious=suspicious,
                 )
             )
-        return deals, len(raw)
+        if self.debug:
+            self._debug_item(item, raw, funnel, len(deals), price_from, price_to)
+        return deals, funnel
+
+    def _debug_item(
+        self, item: WatchItem, raw: list[dict], funnel: Counter[str], deals: int, price_from: float | None, price_to: float
+    ) -> None:
+        assert self.debug is not None
+        window = f"{price_from or 0:.0f}–{price_to:.0f}"
+        self.debug(f"{item.name}: okno cen {window}, pobrano {len(raw)}, okazji {deals}; odpadło: {describe_funnel(funnel) or '—'}")
+        if raw and not self._shown_keys:
+            self._shown_keys = True
+            self.debug(f"pola ogłoszenia w API: {', '.join(sorted(raw[0]))}")
+        for sample in raw[:3]:
+            self.debug(f"  przykład: {_sample(sample)}")
 
     def screen(self, items: list[WatchItem]) -> ScanResult:
         result = ScanResult()
@@ -147,7 +211,7 @@ class Screener:
         for i, item in enumerate(items, start=1):
             self.log(f"[{i}/{len(items)}] {item.name}…")
             try:
-                deals, fetched = self.screen_item(item)
+                deals, funnel = self.screen_item(item)
             except VintedError as exc:
                 result.errors[item.name] = str(exc)
                 self.log(f"    błąd: {exc}")
@@ -158,7 +222,8 @@ class Screener:
                 continue
             consecutive_errors = 0
             result.scanned_items += 1
-            result.listings_seen += fetched
+            result.listings_seen += funnel["fetched"]
+            result.funnel.update(funnel)
             result.deals.extend(deals)
         result.deals.sort(key=lambda d: d.score, reverse=True)
         return result
