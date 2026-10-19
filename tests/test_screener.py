@@ -158,5 +158,6 @@ def test_funnel_explains_why_nothing_matched(dunk):
     assert result.deals == []
     assert describe_funnel(result.funnel) == "waluta EUR 1 · podejrzanie tanie 1 · inny rozmiar 1"
     assert any("okno cen 100–250" in l and "pobrano 3" in l for l in lines)
-    assert any(l.startswith("pola ogłoszenia w API:") and "brand_title" in l for l in lines)
-    assert any("przykład: 'Nike Dunk Low' | marka='Nike'" in l and "60.0 PLN" in l for l in lines)
+    assert any(l.startswith("pola ogłoszenia w API:") and "item_box" in l for l in lines)
+    assert any(l.startswith("pola item_box:") and "accessibility_label" in l for l in lines)
+    assert any("przykład: 'Nike Dunk Low' | marka='Nike' | stan='Nowy z metką' | rozmiar='42'" in l for l in lines)

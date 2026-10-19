@@ -39,12 +39,12 @@ def describe_funnel(funnel: Counter[str]) -> str:
 
 
 def _sample(raw: dict) -> str:
-    price = raw.get("price")
-    if isinstance(price, dict):
-        price = f"{price.get('amount')} {price.get('currency_code')}"
+    listing = Listing.from_api(raw)
+    if listing is None:
+        return f"nieczytelne: {str(raw)[:150]}"
     return (
-        f"{raw.get('title')!r} | marka={raw.get('brand_title')!r} | stan={raw.get('status')!r}"
-        f" | rozmiar={raw.get('size_title')!r} | cena={price}"
+        f"{listing.title!r} | marka={listing.brand!r} | stan={listing.condition!r}"
+        f" | rozmiar={listing.size!r} | cena={listing.total_price:.2f} {listing.currency}"
     )
 
 
@@ -202,6 +202,8 @@ class Screener:
         if raw and not self._shown_keys:
             self._shown_keys = True
             self.debug(f"pola ogłoszenia w API: {', '.join(sorted(raw[0]))}")
+            if isinstance(raw[0].get("item_box"), dict):
+                self.debug(f"pola item_box: {', '.join(sorted(raw[0]['item_box']))}")
         for sample in raw[:3]:
             self.debug(f"  przykład: {_sample(sample)}")
 

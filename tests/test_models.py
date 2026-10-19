@@ -27,8 +27,45 @@ def test_parse_current_api_shape():
     assert listing.seller == "sprzedawca"
 
 
+def test_parse_brand_condition_size_from_item_box():
+    # prawdziwe ogłoszenie z api.vinted.pl/svc-catalogue/items (10.2026), skrócone
+    raw = {
+        "id": 10446365514,
+        "title": "Nike dunk low retro biale czarne sneakersy 39",
+        "item_box": {
+            "accessibility_label": "Nike dunk low retro biale czarne sneakersy 39, Marka: Nike, Stan: Bardzo dobry,"
+            " Rozmiar: 39, 229.00 zł, 243.35 zł",
+            "first_line": "Nike",
+            "item_id": 10446365514,
+        },
+        "price": {"amount": "229.00", "currency_code": "PLN"},
+        "total_item_price": {"amount": "243.35", "currency_code": "PLN"},
+    }
+    listing = Listing.from_api(raw)
+    assert (listing.brand, listing.condition, listing.size) == ("Nike", "Bardzo dobry", "39")
+    assert listing.total_price == 243.35
+
+
+def test_item_box_edge_cases():
+    raw = raw_item("Sweter, Marka: Zara", 100, brand="Polo Ralph Lauren", size="42,5", status="Nowy z metką")
+    listing = Listing.from_api(raw)
+    assert (listing.brand, listing.size, listing.condition) == ("Polo Ralph Lauren", "42,5", "Nowy z metką")
+
+    raw = raw_item("Plecak", 100)
+    raw["item_box"]["accessibility_label"] = "Plecak, Marka: Fjällräven, Stan: Dobry, 100.00 zł, 105.70 zł"
+    assert Listing.from_api(raw).size == ""
+
+    raw["item_box"] = {"first_line": "Nike"}
+    assert Listing.from_api(raw).brand == "Nike"
+
+
+def test_parse_legacy_shape():
+    listing = Listing.from_api(raw_item("Dunk", 100, brand="Nike", size="43", status="Dobry", legacy=True))
+    assert (listing.brand, listing.size, listing.condition) == ("Nike", "43", "Dobry")
+
+
 def test_parse_legacy_string_price_falls_back_to_service_fee():
-    raw = raw_item("Dunk", 100)
+    raw = raw_item("Dunk", 100, legacy=True)
     raw["price"] = "100.0"
     raw["currency"] = "PLN"
     del raw["total_item_price"]

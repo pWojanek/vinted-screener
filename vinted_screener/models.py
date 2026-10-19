@@ -59,6 +59,28 @@ def _money(value: Any) -> tuple[float | None, str | None]:
         return None, currency
 
 
+# Od 09.2026 wyniki wyszukiwania nie mają brand_title/size_title/status — marka, stan i rozmiar są tylko
+# w item_box.accessibility_label: "<tytuł>, Marka: Nike, Stan: Bardzo dobry, Rozmiar: 39, 229.00 zł, 243.35 zł"
+# (etykiety w języku z nagłówka Locale), a marka dodatkowo w item_box.first_line.
+_BOX_KEYS = {"marka": "brand", "brand": "brand", "stan": "condition", "condition": "condition", "rozmiar": "size", "size": "size"}
+# wartość kończy się na ", " — przecinek bez spacji to część wartości (np. rozmiar "42,5")
+_BOX_LABEL_RE = re.compile(r"\b(Marka|Stan|Rozmiar|Brand|Condition|Size): (.+?)(?=, |$)")
+
+
+def _item_box_fields(raw: dict[str, Any]) -> dict[str, str]:
+    box = raw.get("item_box") or {}
+    label = box.get("accessibility_label") or ""
+    title = raw.get("title") or ""
+    if title and label.startswith(title):
+        label = label[len(title) :]  # tytuł może sam zawierać "Marka: …"
+    fields: dict[str, str] = {}
+    for key, value in _BOX_LABEL_RE.findall(label):
+        fields.setdefault(_BOX_KEYS[key.lower()], value.strip())
+    if "brand" not in fields and box.get("first_line"):
+        fields["brand"] = box["first_line"]
+    return fields
+
+
 @dataclass(frozen=True)
 class Listing:
     id: int
@@ -93,12 +115,13 @@ class Listing:
         if timestamp:
             uploaded_at = datetime.fromtimestamp(int(timestamp), tz=timezone.utc)
 
+        box = _item_box_fields(raw)
         return cls(
             id=int(raw["id"]),
             title=raw.get("title") or "",
-            brand=raw.get("brand_title") or "",
-            size=raw.get("size_title") or "",
-            condition=raw.get("status") or "",
+            brand=raw.get("brand_title") or box.get("brand", ""),
+            size=raw.get("size_title") or box.get("size", ""),
+            condition=raw.get("status") or box.get("condition", ""),
             price=price,
             total_price=total,
             currency=currency,
