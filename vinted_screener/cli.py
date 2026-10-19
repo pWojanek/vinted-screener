@@ -1,0 +1,185 @@
+"""Interfejs wiersza poleceń: scan / watch / list."""
+
+from __future__ import annotations
+
+import argparse
+import dataclasses
+import os
+import random
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+from vinted_screener.client import VintedClient
+from vinted_screener.models import normalize
+from vinted_screener.notify import send_discord
+from vinted_screener.report import SORT_KEYS, money, print_deals, sort_deals, write_html, write_json
+from vinted_screener.screener import Filters, ScanResult, Screener
+from vinted_screener.state import State
+from vinted_screener.watchlist import Settings, WatchItem, WatchlistError, load_watchlist
+
+
+def _percent(value: str) -> float:
+    pct = float(value)
+    if not 0 <= pct < 100:
+        raise argparse.ArgumentTypeError("podaj procent z zakresu 0-99")
+    return pct / 100
+
+
+def build_parser() -> argparse.ArgumentParser:
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("-w", "--watchlist", default="watchlist.toml", help="plik z listą modeli (domyślnie: %(default)s)")
+    common.add_argument("--only", action="append", default=[], metavar="TEKST", help="tylko modele, których nazwa zawiera TEKST (można powtarzać)")
+    common.add_argument("--category", action="append", default=[], metavar="KAT", help="tylko wybrane kategorie (można powtarzać)")
+
+    scan = argparse.ArgumentParser(add_help=False, parents=[common])
+    scan.add_argument("--min-discount", type=_percent, metavar="PROC", help="minimalny rabat od retailu w %% (nadpisuje watchlistę)")
+    scan.add_argument("--min-market-discount", type=_percent, metavar="PROC", help="minimalny rabat względem mediany cen na Vinted w %%")
+    scan.add_argument("--max-price", type=float, metavar="KWOTA", help="maksymalna cena")
+    scan.add_argument("--size", action="append", default=[], metavar="ROZM", help="rozmiar, np. 42 albo M (można powtarzać)")
+    scan.add_argument("--pages", type=int, help="ile stron (po 96 ogłoszeń) przeglądać na model")
+    scan.add_argument("--no-market", action="store_true", help="nie licz mediany cen na Vinted (o połowę mniej zapytań)")
+    scan.add_argument("--show-suspicious", action="store_true", help="pokaż też podejrzanie tanie ogłoszenia")
+    scan.add_argument("--sort", choices=sorted(SORT_KEYS), default="score")
+    scan.add_argument("--limit", type=int, default=40, help="ile okazji wypisać w terminalu (domyślnie: %(default)s)")
+    scan.add_argument("--html", default="okazje.html", metavar="PLIK", help="raport HTML (domyślnie: %(default)s, pusty = bez raportu)")
+    scan.add_argument("--json", metavar="PLIK", help="zapisz okazje do JSON")
+    scan.add_argument("--state", default=".vinted-screener/state.json", metavar="PLIK", help="plik stanu (cache median, widziane oferty)")
+    scan.add_argument("-q", "--quiet", action="store_true", help="bez postępu na stderr")
+
+    parser = argparse.ArgumentParser(
+        prog="vinted-screener", description="Szuka na Vinted fajnych rzeczy wystawionych dużo poniżej ceny retail."
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("scan", parents=[scan], help="jednorazowe skanowanie")
+    watch = sub.add_parser("watch", parents=[scan], help="skanuj co N minut i powiadamiaj o nowych okazjach")
+    watch.add_argument("--interval", type=float, default=10, metavar="MIN", help="co ile minut skanować (domyślnie: %(default)s)")
+    watch.add_argument("--webhook", default=os.environ.get("VINTED_DISCORD_WEBHOOK"), help="URL webhooka Discorda (lub zmienna VINTED_DISCORD_WEBHOOK)")
+    watch.add_argument("--notify-existing", action="store_true", help="przy pierwszym skanie wyślij też okazje, które już wiszą")
+    sub.add_parser("list", parents=[common], help="pokaż modele z watchlisty i progi cenowe")
+    return parser
+
+
+def select_items(items: list[WatchItem], only: list[str], categories: list[str]) -> list[WatchItem]:
+    only_n = [normalize(o) for o in only]
+    cats_n = [normalize(c) for c in categories]
+    return [
+        i
+        for i in items
+        if (not only_n or any(o in normalize(i.name) for o in only_n))
+        and (not cats_n or any(c in normalize(i.category) for c in cats_n))
+    ]
+
+
+def cmd_list(settings: Settings, items: list[WatchItem]) -> int:
+    print(f"{'Model':<34} {'Kategoria':<14} {'Retail':>9} {'Okazja do':>10} {'Podejrz. <':>10}")
+    for i in items:
+        print(
+            f"{i.name:<34.34} {i.category:<14.14} {money(i.retail, settings.currency):>9}"
+            f" {money(i.max_price, settings.currency):>10} {money(i.suspicious_price, settings.currency):>10}"
+        )
+    return 0
+
+
+def _make_screener(args: argparse.Namespace, settings: Settings, state: State) -> Screener:
+    if args.pages:
+        settings = dataclasses.replace(settings, pages=args.pages)
+    filters = Filters(
+        min_discount=args.min_discount,
+        min_market_discount=args.min_market_discount,
+        max_price=args.max_price,
+        sizes=tuple(args.size),
+        show_suspicious=args.show_suspicious,
+    )
+    log = (lambda msg: None) if args.quiet else (lambda msg: print(msg, file=sys.stderr, flush=True))
+    client = VintedClient(domain=settings.domain, delay=settings.delay)
+    return Screener(client, settings, filters=filters, state=state, use_market=not args.no_market, log=log)
+
+
+def _write_outputs(args: argparse.Namespace, result: ScanResult) -> None:
+    deals = sort_deals(result.deals, args.sort)
+    if args.html:
+        meta = {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "scanned_items": result.scanned_items,
+            "listings_seen": result.listings_seen,
+            "errors": len(result.errors),
+        }
+        write_html(deals, args.html, meta)
+    if args.json:
+        write_json(deals, args.json)
+
+
+def _summary(result: ScanResult, args: argparse.Namespace) -> str:
+    text = f"{len(result.deals)} okazji · {result.listings_seen} ogłoszeń · {result.scanned_items} modeli"
+    if result.errors:
+        text += f" · {len(result.errors)} błędów"
+    if args.html:
+        text += f" · raport: {Path(args.html).resolve()}"
+    return text
+
+
+def cmd_scan(args: argparse.Namespace, settings: Settings, items: list[WatchItem]) -> int:
+    state = State(args.state)
+    result = _make_screener(args, settings, state).screen(items)
+    state.save()
+    print_deals(sort_deals(result.deals, args.sort)[: args.limit])
+    _write_outputs(args, result)
+    if args.quiet:  # bez --quiet błędy widać już w postępie
+        for name, error in result.errors.items():
+            print(f"błąd [{name}]: {error}", file=sys.stderr)
+    print(_summary(result, args), file=sys.stderr)
+    return 1 if result.errors and not result.scanned_items else 0
+
+
+def cmd_watch(args: argparse.Namespace, settings: Settings, items: list[WatchItem]) -> int:
+    state = State(args.state)
+    screener = _make_screener(args, settings, state)
+    first_cycle = not state.seen
+    try:
+        while True:
+            result = screener.screen(items)
+            new = [d for d in result.deals if not state.is_seen(d.listing.id)]
+            for d in result.deals:
+                state.mark_seen(d.listing.id)
+            state.save()
+            _write_outputs(args, result)
+
+            stamp = datetime.now().strftime("%H:%M")
+            if first_cycle:
+                print(f"[{stamp}] start: {len(new)} aktualnych okazji — kolejne skany pokażą tylko nowe", file=sys.stderr)
+            elif new:
+                print(f"[{stamp}] {len(new)} nowych okazji!", file=sys.stderr)
+            else:
+                print(f"[{stamp}] brak nowych okazji · {_summary(result, args)}", file=sys.stderr)
+            print_deals(sort_deals(new, args.sort)[: args.limit])
+
+            if args.webhook and new and (not first_cycle or args.notify_existing):
+                try:
+                    send_discord(args.webhook, sort_deals(new, args.sort))
+                except OSError as exc:
+                    print(f"nie udało się wysłać powiadomienia: {exc}", file=sys.stderr)
+            first_cycle = False
+            time.sleep(args.interval * 60 * random.uniform(0.85, 1.15))
+    except KeyboardInterrupt:
+        state.save()
+        return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        settings, items = load_watchlist(args.watchlist)
+    except WatchlistError as exc:
+        print(f"watchlista: {exc}", file=sys.stderr)
+        return 2
+    items = select_items(items, args.only, args.category)
+    if not items:
+        print("żaden model z watchlisty nie pasuje do --only/--category", file=sys.stderr)
+        return 2
+    if args.command == "list":
+        return cmd_list(settings, items)
+    if args.command == "scan":
+        return cmd_scan(args, settings, items)
+    return cmd_watch(args, settings, items)

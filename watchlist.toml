@@ -1,0 +1,359 @@
+# Watchlista screenera okazji na Vinted.
+#
+# Ceny "retail" to ORIENTACYJNE regularne ceny w PLN (oficjalne sklepy marek, popularne kolorystyki).
+# Różnią się między kolorystykami i sezonami — popraw je, jeśli znasz aktualne.
+#
+# Pola pozycji [[item]]:
+#   name             – nazwa wyświetlana w wynikach (unikalna)
+#   category         – kategoria do filtrowania (--category)
+#   query            – fraza wpisywana w wyszukiwarkę Vinted
+#   retail           – cena regularna w PLN
+#   brands           – marka ogłoszenia musi być jedną z tych (odsiewa "Inna marka" i podróbki "a'la")
+#   require          – frazy, które MUSZĄ być w tytule; "a|b" = a lub b; "xyz*" = dowolna końcówka
+#   exclude          – frazy, które wykluczają ogłoszenie (dodatkowo zawsze odrzucane są repliki,
+#                      same pudełka, rzeczy dziecięce, zamiany i uszkodzone — patrz watchlist.py)
+#   min_discount     – (opcjonalnie) minimalny rabat od retailu w %, nadpisuje [settings]
+#   suspicious_below – (opcjonalnie) cena poniżej X% retailu = podejrzana (podróbka/scam); dla mocno
+#                      podrabianych marek ustawione wyżej
+#   status_ids       – (opcjonalnie) stany: 6 nowy z metką, 1 nowy bez metki, 2 bardzo dobry, 3 dobry, 4 zadowalający
+
+[settings]
+domain = "www.vinted.pl"
+currency = "PLN"
+min_discount = 50          # okazja = co najmniej 50% taniej niż retail (cena + ochrona kupujących)
+suspicious_below = 20      # poniżej 20% retailu = podejrzane, domyślnie ukrywane
+status_ids = [6, 1, 2]     # tylko nowe i bardzo dobre
+sizes = []                 # np. ["42", "42.5", "M"] — filtruje po rozmiarze; puste = wszystkie
+pages = 1                  # stron po 96 najnowszych ogłoszeń na model
+delay = 1.5                # sekundy między zapytaniami (nie zmniejszaj, Vinted blokuje)
+market_ttl_hours = 12      # jak długo trzymać w cache medianę cen z Vinted
+
+# ─── Sneakersy ────────────────────────────────────────────────────────────────
+
+[[item]]
+name = "Nike Dunk Low"
+category = "Sneakersy"
+query = "nike dunk low"
+retail = 499
+brands = ["Nike"]
+require = ["dunk", "low"]
+exclude = ["high"]
+suspicious_below = 25
+
+[[item]]
+name = "Nike Air Force 1 '07"
+category = "Sneakersy"
+query = "nike air force 1"
+retail = 499
+brands = ["Nike"]
+require = ["air force|af1|af 1"]
+exclude = ["high|mid|shadow"]
+
+[[item]]
+name = "Nike Air Max 90"
+category = "Sneakersy"
+query = "nike air max 90"
+retail = 649
+brands = ["Nike"]
+require = ["air max 90|am90"]
+
+[[item]]
+name = "Air Jordan 1 Mid"
+category = "Sneakersy"
+query = "jordan 1 mid"
+retail = 629
+brands = ["Nike", "Jordan", "Air Jordan"]
+require = ["jordan", "mid"]
+exclude = ["high|low"]
+suspicious_below = 25
+
+[[item]]
+name = "Air Jordan 1 Low"
+category = "Sneakersy"
+query = "jordan 1 low"
+retail = 549
+brands = ["Nike", "Jordan", "Air Jordan"]
+require = ["jordan", "low"]
+exclude = ["high|mid"]
+suspicious_below = 25
+
+[[item]]
+name = "Air Jordan 1 High OG"
+category = "Sneakersy"
+query = "jordan 1 high og"
+retail = 899
+brands = ["Nike", "Jordan", "Air Jordan"]
+require = ["jordan", "high"]
+exclude = ["mid|low"]
+suspicious_below = 30
+
+[[item]]
+name = "Air Jordan 4"
+category = "Sneakersy"
+query = "jordan 4"
+retail = 999
+brands = ["Nike", "Jordan", "Air Jordan"]
+require = ["jordan 4|jordan iv|aj4|air jordan 4"]
+suspicious_below = 30
+
+[[item]]
+name = "adidas Samba OG"
+category = "Sneakersy"
+query = "adidas samba"
+retail = 499
+brands = ["adidas", "adidas Originals"]
+require = ["samba"]
+
+[[item]]
+name = "adidas Gazelle"
+category = "Sneakersy"
+query = "adidas gazelle"
+retail = 449
+brands = ["adidas", "adidas Originals"]
+require = ["gazelle"]
+
+[[item]]
+name = "adidas Handball Spezial"
+category = "Sneakersy"
+query = "adidas spezial"
+retail = 449
+brands = ["adidas", "adidas Originals"]
+require = ["spezial"]
+
+[[item]]
+name = "New Balance 550"
+category = "Sneakersy"
+query = "new balance 550"
+retail = 599
+brands = ["New Balance"]
+require = ["550"]
+
+[[item]]
+name = "New Balance 2002R"
+category = "Sneakersy"
+query = "new balance 2002r"
+retail = 699
+brands = ["New Balance"]
+require = ["2002r|2002"]
+
+[[item]]
+name = "New Balance 9060"
+category = "Sneakersy"
+query = "new balance 9060"
+retail = 749
+brands = ["New Balance"]
+require = ["9060"]
+
+[[item]]
+name = "ASICS Gel-Kayano 14"
+category = "Sneakersy"
+query = "asics gel kayano 14"
+retail = 699
+brands = ["ASICS"]
+require = ["kayano", "14"]
+
+[[item]]
+name = "Salomon XT-6"
+category = "Sneakersy"
+query = "salomon xt-6"
+retail = 899
+brands = ["Salomon"]
+require = ["xt 6"]
+
+[[item]]
+name = "Salomon ACS Pro"
+category = "Sneakersy"
+query = "salomon acs pro"
+retail = 799
+brands = ["Salomon"]
+require = ["acs"]
+
+[[item]]
+name = "Hoka Clifton"
+category = "Sneakersy"
+query = "hoka clifton"
+retail = 649
+brands = ["Hoka", "Hoka One One"]
+require = ["clifton"]
+
+[[item]]
+name = "On Cloudmonster"
+category = "Sneakersy"
+query = "on cloudmonster"
+retail = 799
+brands = ["On", "On Running"]
+require = ["cloudmonster"]
+
+# ─── Buty ─────────────────────────────────────────────────────────────────────
+
+[[item]]
+name = "Dr. Martens 1460"
+category = "Buty"
+query = "dr martens 1460"
+retail = 849
+brands = ["Dr. Martens"]
+require = ["1460"]
+
+[[item]]
+name = "Timberland 6-Inch Premium"
+category = "Buty"
+query = "timberland 6 inch premium"
+retail = 899
+brands = ["Timberland"]
+require = ["6 inch|6inch|premium"]
+
+[[item]]
+name = "UGG Ultra Mini"
+category = "Buty"
+query = "ugg ultra mini"
+retail = 699
+brands = ["UGG"]
+require = ["ultra mini"]
+suspicious_below = 30
+
+[[item]]
+name = "Birkenstock Boston"
+category = "Buty"
+query = "birkenstock boston"
+retail = 699
+brands = ["Birkenstock"]
+require = ["boston"]
+
+# ─── Kurtki i outdoor ─────────────────────────────────────────────────────────
+
+[[item]]
+name = "The North Face 1996 Nuptse"
+category = "Kurtki"
+query = "the north face nuptse 1996"
+retail = 1449
+brands = ["The North Face"]
+require = ["nuptse"]
+exclude = ["vest|kamizelka|bezrekawnik|mule|bootie|kapcie|buty"]
+suspicious_below = 30
+
+[[item]]
+name = "The North Face Nuptse kamizelka"
+category = "Kurtki"
+query = "the north face nuptse kamizelka"
+retail = 849
+brands = ["The North Face"]
+require = ["nuptse", "vest|kamizelka|bezrekawnik"]
+suspicious_below = 30
+
+[[item]]
+name = "The North Face Denali"
+category = "Kurtki"
+query = "the north face denali"
+retail = 849
+brands = ["The North Face"]
+require = ["denali"]
+
+[[item]]
+name = "Arc'teryx Beta LT"
+category = "Kurtki"
+query = "arcteryx beta lt"
+retail = 2099
+brands = ["Arc'teryx"]
+require = ["beta lt"]
+suspicious_below = 30
+
+[[item]]
+name = "Arc'teryx Atom"
+category = "Kurtki"
+query = "arcteryx atom"
+retail = 1249
+brands = ["Arc'teryx"]
+require = ["atom"]
+exclude = ["vest|kamizelka|bezrekawnik"]
+suspicious_below = 30
+
+[[item]]
+name = "Patagonia Retro-X"
+category = "Kurtki"
+query = "patagonia retro x"
+retail = 1049
+brands = ["Patagonia"]
+require = ["retro x"]
+
+[[item]]
+name = "Carhartt WIP Detroit Jacket"
+category = "Kurtki"
+query = "carhartt detroit jacket"
+retail = 949
+brands = ["Carhartt", "Carhartt WIP"]
+require = ["detroit"]
+
+[[item]]
+name = "Barbour kurtka woskowana"
+category = "Kurtki"
+query = "barbour wax jacket"
+retail = 1499
+brands = ["Barbour"]
+require = ["bedale|beaufort|ashby|border|wax*|woskowan*"]
+
+# ─── Odzież ───────────────────────────────────────────────────────────────────
+
+[[item]]
+name = "Patagonia Better Sweater"
+category = "Odzież"
+query = "patagonia better sweater"
+retail = 649
+brands = ["Patagonia"]
+require = ["better sweater"]
+
+[[item]]
+name = "Ralph Lauren sweter z warkoczem"
+category = "Odzież"
+query = "ralph lauren cable knit"
+retail = 899
+brands = ["Ralph Lauren", "Polo Ralph Lauren", "Polo by Ralph Lauren"]
+require = ["cable*|warkocz*"]
+suspicious_below = 20
+
+[[item]]
+name = "Stone Island bluza"
+category = "Odzież"
+query = "stone island bluza"
+retail = 1199
+brands = ["Stone Island"]
+require = ["bluza|crewneck|sweatshirt|hoodie"]
+suspicious_below = 35
+
+[[item]]
+name = "Nike Tech Fleece bluza"
+category = "Odzież"
+query = "nike tech fleece bluza"
+retail = 549
+brands = ["Nike"]
+require = ["tech fleece|techfleece", "bluza|hoodie|kurtka|zip"]
+exclude = ["spodnie|joggers|komplet|dres"]
+suspicious_below = 25
+
+[[item]]
+name = "lululemon Align legginsy"
+category = "Odzież"
+query = "lululemon align"
+retail = 449
+brands = ["lululemon"]
+require = ["align"]
+
+# ─── Akcesoria ────────────────────────────────────────────────────────────────
+
+[[item]]
+name = "Fjällräven Kånken"
+category = "Akcesoria"
+query = "fjallraven kanken"
+retail = 429
+brands = ["Fjällräven"]
+require = ["kanken"]
+exclude = ["mini"]
+suspicious_below = 25
+
+[[item]]
+name = "Ray-Ban Wayfarer"
+category = "Akcesoria"
+query = "ray-ban wayfarer"
+retail = 699
+brands = ["Ray-Ban"]
+require = ["wayfarer"]
+suspicious_below = 25
