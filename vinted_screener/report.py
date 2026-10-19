@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -68,11 +69,24 @@ def deal_to_dict(deal: Deal) -> dict[str, Any]:
 
 
 _ANSI = {"bold": "1", "dim": "2", "red": "31", "green": "32", "yellow": "33", "cyan": "36"}
+_ansi_ok = os.name != "nt"
+
+
+def enable_windows_ansi() -> None:
+    """Włącza obsługę kodów ANSI w konsoli Windows (ENABLE_VIRTUAL_TERMINAL_PROCESSING)."""
+    global _ansi_ok
+    import ctypes
+
+    kernel32 = ctypes.windll.kernel32
+    handle = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
+    mode = ctypes.c_uint32()
+    if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+        _ansi_ok = bool(kernel32.SetConsoleMode(handle, mode.value | 0x0004))
 
 
 def print_deals(deals: list[Deal], out: TextIO | None = None, color: bool | None = None, now: datetime | None = None) -> None:
     out = out or sys.stdout
-    enabled = out.isatty() if color is None else color
+    enabled = (_ansi_ok and out.isatty()) if color is None else color
 
     def c(style: str, text: str) -> str:
         return f"\033[{_ANSI[style]}m{text}\033[0m" if enabled else text

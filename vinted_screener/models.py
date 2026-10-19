@@ -11,20 +11,21 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from vinted_screener.watchlist import WatchItem
 
-# Vinted zwraca stan jako zlokalizowany tekst; status_ids w zapytaniu:
+# Vinted zwraca stan jako zlokalizowany tekst; w zapytaniu filtruje się po ID:
 # 6 = nowy z metką, 1 = nowy bez metki, 2 = bardzo dobry, 3 = dobry, 4 = zadowalający.
-CONDITION_FACTORS = {
-    "nowy z metka": 1.0,
-    "new with tags": 1.0,
-    "nowy bez metki": 0.9,
-    "new without tags": 0.9,
-    "bardzo dobry": 0.75,
-    "very good": 0.75,
-    "dobry": 0.5,
-    "good": 0.5,
-    "zadowalajacy": 0.3,
-    "satisfactory": 0.3,
+CONDITION_STATUS_IDS = {
+    "nowy z metka": 6,
+    "new with tags": 6,
+    "nowy bez metki": 1,
+    "new without tags": 1,
+    "bardzo dobry": 2,
+    "very good": 2,
+    "dobry": 3,
+    "good": 3,
+    "zadowalajacy": 4,
+    "satisfactory": 4,
 }
+STATUS_FACTORS = {6: 1.0, 1: 0.9, 2: 0.75, 3: 0.5, 4: 0.3}
 DEFAULT_CONDITION_FACTOR = 0.75
 
 _EXTRA_CHARS = str.maketrans({"ł": "l", "Ł": "l", "ø": "o", "Ø": "o", "ß": "ss", "æ": "ae", "’": "", "'": ""})
@@ -37,8 +38,12 @@ def normalize(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", text).strip()
 
 
+def condition_status_id(condition: str) -> int | None:
+    return CONDITION_STATUS_IDS.get(normalize(condition))
+
+
 def condition_factor(condition: str) -> float:
-    return CONDITION_FACTORS.get(normalize(condition), DEFAULT_CONDITION_FACTOR)
+    return STATUS_FACTORS.get(condition_status_id(condition), DEFAULT_CONDITION_FACTOR)
 
 
 def _money(value: Any) -> tuple[float | None, str | None]:

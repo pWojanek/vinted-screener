@@ -14,7 +14,7 @@ from pathlib import Path
 from vinted_screener.client import VintedClient
 from vinted_screener.models import normalize
 from vinted_screener.notify import send_discord
-from vinted_screener.report import SORT_KEYS, money, print_deals, sort_deals, write_html, write_json
+from vinted_screener.report import SORT_KEYS, enable_windows_ansi, money, print_deals, sort_deals, write_html, write_json
 from vinted_screener.screener import Filters, ScanResult, Screener
 from vinted_screener.state import State
 from vinted_screener.watchlist import Settings, WatchItem, WatchlistError, load_watchlist
@@ -47,6 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--json", metavar="PLIK", help="zapisz okazje do JSON")
     scan.add_argument("--state", default=".vinted-screener/state.json", metavar="PLIK", help="plik stanu (cache median, widziane oferty)")
     scan.add_argument("-q", "--quiet", action="store_true", help="bez postępu na stderr")
+    scan.add_argument("--debug", action="store_true", help="wypisuj zapytania do Vinted i początek odpowiedzi")
 
     parser = argparse.ArgumentParser(
         prog="vinted-screener", description="Szuka na Vinted fajnych rzeczy wystawionych dużo poniżej ceny retail."
@@ -93,7 +94,8 @@ def _make_screener(args: argparse.Namespace, settings: Settings, state: State) -
         show_suspicious=args.show_suspicious,
     )
     log = (lambda msg: None) if args.quiet else (lambda msg: print(msg, file=sys.stderr, flush=True))
-    client = VintedClient(domain=settings.domain, delay=settings.delay)
+    debug = (lambda msg: print(f"  [debug] {msg}", file=sys.stderr, flush=True)) if args.debug else None
+    client = VintedClient(domain=settings.domain, delay=settings.delay, debug=debug)
     return Screener(client, settings, filters=filters, state=state, use_market=not args.no_market, log=log)
 
 
@@ -167,7 +169,18 @@ def cmd_watch(args: argparse.Namespace, settings: Settings, items: list[WatchIte
         return 0
 
 
+def _prepare_console() -> None:
+    # Konsola Windows bez tego pokazuje kody kolorów jako śmieci, a przekierowane wyjście
+    # w cp1250 wywala się na znakach typu ♥/⚠.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
+    if os.name == "nt":
+        enable_windows_ansi()
+
+
 def main(argv: list[str] | None = None) -> int:
+    _prepare_console()
     args = build_parser().parse_args(argv)
     try:
         settings, items = load_watchlist(args.watchlist)

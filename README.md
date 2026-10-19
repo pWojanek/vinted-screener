@@ -46,7 +46,8 @@ vinted-screener scan --show-suspicious       # pokaż też podejrzanie tanie
 vinted-screener watch --interval 10          # co ~10 min, wypisuje tylko NOWE okazje
 ```
 
-Zamiast `vinted-screener` można też uruchomić `python -m vinted_screener`.
+Zamiast `vinted-screener` można też uruchomić `python -m vinted_screener`. Na Windowsie z Pythonem
+ze Sklepu Microsoft komenda `vinted-screener` często nie jest w PATH, wtedy używaj `python -m vinted_screener`.
 
 Raport `okazje.html` otwierasz w przeglądarce. Ma zdjęcia, filtry (kategoria, model, rabat,
 szukajka) i sortowanie. `--json plik.json` zapisuje wyniki do dalszej obróbki.
@@ -83,7 +84,8 @@ W `[settings]` ustawisz domyślne rozmiary (`sizes = ["43", "L"]`), próg rabatu
 - **Ceny retail są orientacyjne.** To ceny regularne PLN dla popularnych kolorystyk, a limitowane
   kolorystyki kosztują więcej. Popraw je, jeśli znasz aktualne.
 - **API Vinted jest nieoficjalne.** Może się zmienić albo zacząć blokować (HTTP 403/429).
-  Nie zmniejszaj `delay` i nie skanuj częściej niż co kilka minut.
+  Nie zmniejszaj `delay` i nie skanuj częściej niż co kilka minut. Przy błędach uruchom
+  `scan --only dunk --debug`, wtedy widać zapytania i początek odpowiedzi Vinted.
 - **Dopasowanie działa tylko po tytule i marce,** bo opis ogłoszenia nie przychodzi w wynikach
   wyszukiwania. Zawsze obejrzyj zdjęcia, opinie sprzedawcy i metki. Niska cena przy markach
   takich jak Stone Island, Nuptse czy Jordan to częsty sygnał podróbki.

@@ -21,4 +21,6 @@ Screener okazji na Vinted (Python 3.11+, CLI). Szczegóły modułów są w `arch
 
 - API Vinted jest nieoficjalne. W środowisku chmurowym Claude vinted.pl jest zablokowane przez proxy,
   więc zmian w kliencie nie da się tam sprawdzić na żywo. Weryfikacja idzie przez testy na fixture'ach.
+- Gdy Vinted zmieni API, punktem odniesienia jest aktualna wersja biblioteki `vinted_scraper` z PyPI
+  (pliki `utils/_constants.py`, `utils/_headers.py`). Użytkownik diagnozuje u siebie przez `scan --debug`.
 - Ceny retail w `watchlist.toml` są orientacyjne.

@@ -7,7 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from vinted_screener.client import VintedClient, VintedError
-from vinted_screener.models import Deal, Listing, condition_factor
+from vinted_screener.models import Deal, Listing, condition_factor, condition_status_id
 from vinted_screener.state import State
 from vinted_screener.watchlist import Settings, WatchItem, size_matches
 
@@ -67,6 +67,10 @@ class Screener:
             listing = Listing.from_api(raw)
             if listing is None or (listing.currency and listing.currency != self.settings.currency):
                 continue
+            # zabezpieczenie na wypadek, gdyby API zignorowało filtr stanu
+            status_id = condition_status_id(listing.condition)
+            if status_id is not None and status_id not in item.status_ids:
+                continue
             if item.matches(listing):
                 listings.append(listing)
         return listings
@@ -81,7 +85,6 @@ class Screener:
         raw = self.client.search(
             item.query,
             status_ids=item.status_ids,
-            currency=self.settings.currency,
             per_page=self.settings.per_page,
         )
         prices = [l.total_price for l in self._parse(item, raw) if l.total_price >= item.suspicious_price]
@@ -101,7 +104,6 @@ class Screener:
             status_ids=item.status_ids,
             price_from=price_from,
             price_to=price_to,
-            currency=self.settings.currency,
             pages=self.settings.pages,
             per_page=self.settings.per_page,
         )

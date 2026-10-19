@@ -135,3 +135,13 @@ def test_deal_score():
     assert deal_score(0.6, None, "Bardzo dobry") == 45.0
     assert deal_score(0.6, 0.4, "Nowy z metką") > deal_score(0.6, 0.0, "Nowy z metką") > deal_score(0.6, -0.3, "Nowy z metką")
     assert deal_score(0.5, -5.0, "Nowy z metką") == round(100 * (0.65 * 0.5 - 0.35 * 0.5), 1)
+
+
+def test_condition_outside_status_ids_is_skipped_even_if_api_ignores_filter(dunk):
+    candidates = [
+        raw_item("Nike Dunk Low", 150, id=1, status="Dobry"),
+        raw_item("Nike Dunk Low", 150, id=2, status="Bardzo dobry"),
+        raw_item("Nike Dunk Low", 150, id=3, status="Jakiś nowy stan"),
+    ]
+    deals, _ = screener(FakeClient(candidates), use_market=False).screen_item(dunk)
+    assert sorted(d.listing.id for d in deals) == [2, 3]
