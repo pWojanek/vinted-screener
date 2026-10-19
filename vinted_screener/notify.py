@@ -6,7 +6,7 @@ import json
 import urllib.request
 
 from vinted_screener.models import Deal
-from vinted_screener.report import money
+from vinted_screener.report import money, source_text
 
 EMBEDS_PER_MESSAGE = 10  # limit Discorda
 
@@ -16,14 +16,15 @@ def discord_payloads(deals: list[Deal]) -> list[dict]:
     for d in deals:
         l = d.listing
         lines = [
-            f"**{money(l.total_price, l.currency)}** zamiast {money(d.item.retail, l.currency)} (−{d.retail_discount:.0%})",
+            f"**{money(l.total_price, l.currency)}** zamiast {money(d.retail, l.currency)} (−{d.retail_discount:.0%})",
+            f"retail wg {source_text(d.retail_source)}",
             f"{l.size or '?'} · {l.condition or '?'} · wynik {d.score:.0f}",
         ]
         if d.market_median is not None:
             lines.append(f"mediana Vinted: {money(d.market_median, l.currency)}")
         if d.suspicious:
             lines.append("⚠ podejrzanie tanio — sprawdź autentyczność")
-        embed = {"title": f"{d.item.name}: {l.title}"[:256], "url": l.url, "description": "\n".join(lines)}
+        embed = {"title": f"{d.model}: {l.title}"[:256], "url": l.url, "description": "\n".join(lines)}
         if l.photo_url:
             embed["thumbnail"] = {"url": l.photo_url}
         embeds.append(embed)

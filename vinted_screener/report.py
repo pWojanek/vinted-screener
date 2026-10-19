@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import sys
@@ -10,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TextIO
 
-from vinted_screener.models import Deal
+from vinted_screener.models import Deal, RetailSource
 
 SORT_KEYS = {
     "score": lambda d: -d.score,
@@ -42,12 +43,19 @@ def format_age(uploaded_at: datetime | None, now: datetime | None = None) -> str
     return f"{minutes // (24 * 60)} dni"
 
 
+def source_text(source: RetailSource) -> str:
+    text = source.label
+    if source.url:
+        text += f" {source.url}"
+    return text
+
+
 def deal_to_dict(deal: Deal) -> dict[str, Any]:
     l = deal.listing
     return {
         "id": l.id,
-        "model": deal.item.name,
-        "category": deal.item.category,
+        "model": deal.model,
+        "category": deal.category,
         "title": l.title,
         "brand": l.brand,
         "size": l.size,
@@ -55,7 +63,8 @@ def deal_to_dict(deal: Deal) -> dict[str, Any]:
         "price": l.price,
         "total_price": round(l.total_price, 2),
         "currency": l.currency,
-        "retail": deal.item.retail,
+        "retail": deal.retail,
+        "retail_source": dataclasses.asdict(deal.retail_source),
         "retail_discount": round(deal.retail_discount, 4),
         "market_median": deal.market_median,
         "market_discount": round(deal.market_discount, 4) if deal.market_discount is not None else None,
@@ -103,8 +112,8 @@ def print_deals(deals: list[Deal], out: TextIO | None = None, color: bool | None
         warn = c("red", " ⚠ PODEJRZANIE TANIO") if d.suspicious else ""
         out.write(
             f"{c('bold', score)}  {c('bold', f'-{d.retail_discount:.0%}')}  {c('bold', money(l.total_price, l.currency))}"
-            f"  {c('dim', f'(retail {money(d.item.retail, l.currency)}{market})')}{warn}\n"
-            f"       {c('cyan', d.item.name)} · rozm. {l.size or '?'} · {l.condition or '?'}"
+            f"  {c('dim', f'(retail {money(d.retail, l.currency)} wg {source_text(d.retail_source)}{market})')}{warn}\n"
+            f"       {c('cyan', d.model)} · rozm. {l.size or '?'} · {l.condition or '?'}"
             f" · {format_age(l.uploaded_at, now)} temu · ♥ {l.favourites}\n"
             f"       {l.title}\n"
             f"       {c('dim', l.url)}\n\n"

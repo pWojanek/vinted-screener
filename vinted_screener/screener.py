@@ -5,11 +5,11 @@ from __future__ import annotations
 import statistics
 from collections import Counter
 from collections.abc import Callable
-from typing import TypeAlias
+from typing import Any, Protocol, TypeAlias, TypeVar
 from dataclasses import dataclass, field
 
 from vinted_screener.client import VintedClient, VintedError
-from vinted_screener.models import Deal, Listing, condition_factor, condition_status_id
+from vinted_screener.models import Deal, Listing, RetailSource, condition_factor, condition_status_id
 from vinted_screener.state import State
 from vinted_screener.watchlist import Settings, WatchItem, size_matches
 
@@ -26,6 +26,7 @@ REJECT_LABELS = {
     "price": "za drogie",
     "suspicious": "podejrzanie tanie",
     "market": "za drogie vs Vinted",
+    "unknown": "nierozpoznany produkt",
 }
 
 
@@ -68,10 +69,80 @@ class ScanResult:
     scanned_items: int = 0
     listings_seen: int = 0
     funnel: Counter[str] = field(default_factory=Counter)
+    ai_cost_usd: float = 0.0  # tryb marek
+    ai_searches: int = 0
 
 
-# wołane po każdym modelu: (numer modelu od 1, model, wynik do tej pory)
-ItemCallback: TypeAlias = Callable[[int, WatchItem, ScanResult], None]
+class ScanUnit(Protocol):
+    name: str
+
+
+U = TypeVar("U", bound=ScanUnit)
+# wołane po każdym modelu/marce: (numer od 1, model albo marka, wynik do tej pory)
+ItemCallback: TypeAlias = Callable[[int, Any, ScanResult], None]
+
+
+def parse_listings(
+    raw_items: list[dict],
+    settings: Settings,
+    status_ids: tuple[int, ...],
+    accept: Callable[[Listing], bool],
+    funnel: Counter[str],
+) -> list[Listing]:
+    """Ogłoszenia w dobrej walucie i stanie, które `accept` uznał za pasujące; resztę liczy w lejku."""
+    listings = []
+    for raw in raw_items:
+        listing = Listing.from_api(raw, settings.site_url)
+        if listing is None:
+            funnel["unparsed"] += 1
+        elif listing.currency and listing.currency != settings.currency:
+            funnel[f"currency:{listing.currency}"] += 1
+        # zabezpieczenie na wypadek, gdyby API zignorowało filtr stanu
+        elif (status_id := condition_status_id(listing.condition)) is not None and status_id not in status_ids:
+            funnel["condition"] += 1
+        elif not accept(listing):
+            funnel["model"] += 1
+        else:
+            listings.append(listing)
+    return listings
+
+
+def run_scan(
+    units: list[U],
+    scan_one: Callable[[U], tuple[list[Deal], Counter[str]]],
+    log: Callable[[str], None],
+    on_item: ItemCallback | None = None,
+    should_stop: Callable[[], bool] | None = None,
+) -> ScanResult:
+    """Pętla skanu wspólna dla modeli i marek: postęp, zatrzymanie, przerwanie po serii błędów Vinted."""
+    result = ScanResult()
+    consecutive_errors = 0
+    for i, unit in enumerate(units, start=1):
+        if should_stop and should_stop():
+            result.errors["(przerwano)"] = f"zatrzymano, pominięto {len(units) - i + 1}"
+            break
+        log(f"[{i}/{len(units)}] {unit.name}…")
+        try:
+            deals, funnel = scan_one(unit)
+        except VintedError as exc:
+            result.errors[unit.name] = str(exc)
+            log(f"    błąd: {exc}")
+            consecutive_errors += 1
+            if on_item:
+                on_item(i, unit, result)
+            if consecutive_errors >= MAX_CONSECUTIVE_ERRORS and i < len(units):
+                result.errors["(przerwano)"] = f"{consecutive_errors} błędy z rzędu, pominięto {len(units) - i}"
+                break
+            continue
+        consecutive_errors = 0
+        result.scanned_items += 1
+        result.listings_seen += funnel["fetched"]
+        result.funnel.update(funnel)
+        result.deals.extend(deals)
+        if on_item:
+            on_item(i, unit, result)
+    result.deals.sort(key=lambda d: d.score, reverse=True)
+    return result
 
 
 @dataclass(frozen=True)
@@ -104,22 +175,7 @@ class Screener:
         self._shown_keys = False
 
     def _parse(self, item: WatchItem, raw_items: list[dict], funnel: Counter[str] | None = None) -> list[Listing]:
-        funnel = funnel if funnel is not None else Counter()
-        listings = []
-        for raw in raw_items:
-            listing = Listing.from_api(raw, self.settings.site_url)
-            if listing is None:
-                funnel["unparsed"] += 1
-            elif listing.currency and listing.currency != self.settings.currency:
-                funnel[f"currency:{listing.currency}"] += 1
-            # zabezpieczenie na wypadek, gdyby API zignorowało filtr stanu
-            elif (status_id := condition_status_id(listing.condition)) is not None and status_id not in item.status_ids:
-                funnel["condition"] += 1
-            elif not item.matches(listing):
-                funnel["model"] += 1
-            else:
-                listings.append(listing)
-        return listings
+        return parse_listings(raw_items, self.settings, item.status_ids, item.matches, Counter() if funnel is None else funnel)
 
     def market_median(self, item: WatchItem) -> float | None:
         """Mediana cen najnowszych pasujących ofert (bez podejrzanie tanich) — "typowa cena na Vinted"."""
@@ -185,8 +241,11 @@ class Screener:
                 continue
             deals.append(
                 Deal(
-                    item=item,
                     listing=listing,
+                    model=item.name,
+                    category=item.category,
+                    retail=item.retail,
+                    retail_source=RetailSource(kind="watchlist", label="watchlista", product=item.name),
                     retail_discount=retail_discount,
                     market_median=median,
                     market_discount=market_discount,
@@ -218,31 +277,4 @@ class Screener:
         on_item: ItemCallback | None = None,
         should_stop: Callable[[], bool] | None = None,
     ) -> ScanResult:
-        result = ScanResult()
-        consecutive_errors = 0
-        for i, item in enumerate(items, start=1):
-            if should_stop and should_stop():
-                result.errors["(przerwano)"] = f"zatrzymano, pominięto {len(items) - i + 1} modeli"
-                break
-            self.log(f"[{i}/{len(items)}] {item.name}…")
-            try:
-                deals, funnel = self.screen_item(item)
-            except VintedError as exc:
-                result.errors[item.name] = str(exc)
-                self.log(f"    błąd: {exc}")
-                consecutive_errors += 1
-                if on_item:
-                    on_item(i, item, result)
-                if consecutive_errors >= MAX_CONSECUTIVE_ERRORS and i < len(items):
-                    result.errors["(przerwano)"] = f"{consecutive_errors} błędy z rzędu, pominięto {len(items) - i} modeli"
-                    break
-                continue
-            consecutive_errors = 0
-            result.scanned_items += 1
-            result.listings_seen += funnel["fetched"]
-            result.funnel.update(funnel)
-            result.deals.extend(deals)
-            if on_item:
-                on_item(i, item, result)
-        result.deals.sort(key=lambda d: d.score, reverse=True)
-        return result
+        return run_scan(items, self.screen_item, self.log, on_item, should_stop)

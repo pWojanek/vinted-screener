@@ -4,7 +4,7 @@ import pytest
 from conftest import make_item, raw_item
 
 from vinted_screener.models import Listing, normalize
-from vinted_screener.watchlist import WatchlistError, compile_term, load_watchlist, size_matches
+from vinted_screener.watchlist import Brand, Settings, WatchlistError, compile_term, load_brands, load_watchlist, size_matches
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -128,3 +128,38 @@ def test_bundled_clothing_matching(model, title, brand, expected):
     _, items = load_watchlist(ROOT / "watchlist.toml")
     item = next(i for i in items if i.name == model)
     assert item.matches(listing(title, brand=brand)) is expected
+
+
+def test_bundled_brands_load():
+    settings, _ = load_watchlist(ROOT / "watchlist.toml")
+    brands = {b.name: b for b in load_brands(ROOT / "watchlist.toml", settings)}
+    assert len(brands) >= 30
+    assert brands["On"].query == "on running"
+    assert brands["Moncler"].suspicious_below == 0.4
+    assert brands["adidas"].suspicious_below == settings.suspicious_below
+
+
+@pytest.mark.parametrize(
+    "brand_name, listing_brand, title, expected",
+    [
+        ("Nike", "Nike SB", "Dunk low", True),
+        ("Ralph Lauren", "Polo Ralph Lauren", "Sweter", True),
+        ("On", "Only", "Kurtka", False),
+        ("On", "On Running", "Cloudmonster", True),
+        ("Nike", "Nike", "Bluza nike replika", False),
+        ("Nike", "Nike", "Bluza dla dziecka", False),
+    ],
+)
+def test_brand_matching(brand_name, listing_brand, title, expected):
+    settings, _ = load_watchlist(ROOT / "watchlist.toml")
+    brand = {b.name: b for b in load_brands(ROOT / "watchlist.toml", settings)}[brand_name]
+    assert brand.matches(listing(title, brand=listing_brand)) is expected
+
+
+def test_custom_brand_and_brand_errors(tmp_path):
+    custom = Brand.custom("Zara Home", Settings())
+    assert custom.query == "zara home" and custom.matches(listing("Poduszka", brand="Zara Home"))
+    path = tmp_path / "w.toml"
+    path.write_text('[[brand]]\nname = "Nike"\n[[brand]]\nname = "nike"\n')
+    with pytest.raises(WatchlistError, match="zdublowana"):
+        load_brands(path, Settings())

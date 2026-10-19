@@ -8,14 +8,20 @@ import urllib.request
 from http.server import ThreadingHTTPServer
 
 import pytest
-from conftest import make_item, raw_item
+from conftest import raw_item
+from test_retail import FakeAnthropic, search_response, text_response
 
 from vinted_screener.server import ScanService, make_handler
 from vinted_screener.state import State
-from vinted_screener.watchlist import Settings
+from vinted_screener.watchlist import Brand, Settings
+
+SETTINGS = Settings(delay=0)
+BRANDS = [Brand("Nike", "nike", ("Nike",), 0.2), Brand("adidas", "adidas", ("adidas",), 0.2)]
+REPORT = {"found": True, "price_pln": 499, "source_url": "https://www.nike.com/pl/t/dunk-low-retro",
+          "shop": "nike.com", "matched_product": "Nike Dunk Low Retro", "note": None}
 
 
-class FakeClient:
+class FakeVinted:
     def __init__(self, gate: threading.Event | None = None) -> None:
         self.gate = gate
         self.calls: list[dict] = []
@@ -24,26 +30,28 @@ class FakeClient:
         self.calls.append({"text": text, **kwargs})
         if self.gate:
             self.gate.wait(5)
-        if kwargs.get("price_to") is None:
-            return []
-        return [raw_item(f"{text} okazja", 150, id=hash(text) & 0xFFFFFF)]
+        if text.startswith("nike"):
+            return [raw_item("Nike dunk low panda", 150, id=1, size="42")]
+        return [raw_item("Adidas samba", 150, id=2, brand="adidas")]
+
+
+def ai_client():
+    identify = text_response({"items": [{"i": 0, "p": "Nike Dunk Low Retro", "c": "Sneakersy", "r": 450, "q": "high"}]})
+    return FakeAnthropic(identify, search_response(REPORT))
 
 
 @pytest.fixture
 def server(tmp_path):
-    def start(client=None):
-        items = [
-            make_item(name="Nike Dunk Low", query="nike dunk low"),
-            make_item(name="Dunk 2", category="Inne", query="nike dunk low 2"),
-        ]
-        service = ScanService(Settings(delay=0), items, client or FakeClient(), State(tmp_path / "s.json"),
+    started: list = []
+
+    def start(vinted=None, ai=None):
+        service = ScanService(SETTINGS, BRANDS, vinted or FakeVinted(), State(tmp_path / "s.json"), ai_client=ai,
                               html_path=str(tmp_path / "okazje.html"))
         httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(service))
         threading.Thread(target=httpd.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
         started.append(httpd)
         return f"http://127.0.0.1:{httpd.server_address[1]}", service
 
-    started: list = []
     yield start
     for httpd in started:
         httpd.shutdown()
@@ -71,42 +79,52 @@ def wait_finished(base):
     raise AssertionError("skan się nie skończył")
 
 
-def test_page_and_watchlist(server):
-    base, _ = server()
+def test_page_and_brand_list(server):
+    base, _ = server(ai=ai_client())
     code, page = call(base + "/")
     assert code == 200 and '"mode": "app"' in page
-    code, body = call(base + "/api/watchlist")
-    data = json.loads(body)
-    assert [i["name"] for i in data["items"]] == ["Nike Dunk Low", "Dunk 2"]
-    assert data["items"][0]["max_price"] == 250 and data["currency"] == "PLN"
+    data = json.loads(call(base + "/api/watchlist")[1])
+    assert data["brands"] == ["Nike", "adidas"]
+    assert data["ai_enabled"] is True and data["ai_model"] == "claude-opus-5-5"
+    assert data["max_ai_cost"] == SETTINGS.max_ai_cost and data["min_discount"] == 50
 
 
-def test_scan_selected_items_in_background(server, tmp_path):
+def test_watchlist_says_when_ai_is_off(server):
     base, _ = server()
-    code, body = call(base + "/api/scan", {"items": ["Nike Dunk Low"], "sizes": ["42"], "min_discount": 60,
-                                          "use_market": False, "show_suspicious": False})
+    data = json.loads(call(base + "/api/watchlist")[1])
+    assert data["ai_enabled"] is False and data["ai_model"] is None
+
+
+def test_brand_scan_with_ai_retail_and_source(server, tmp_path):
+    vinted = FakeVinted()
+    base, _ = server(vinted, ai_client())
+    code, body = call(base + "/api/scan", {"brands": ["nike"], "query": "buty", "sizes": ["42"], "min_discount": 50,
+                                          "max_ai_cost": 1.5})
     assert code == 202, body
     status = wait_finished(base)
+    assert vinted.calls[0]["text"] == "nike buty"
     assert status["done"] == 1 and status["total"] == 1
-    assert [d["model"] for d in status["deals"]] == ["Nike Dunk Low"]
-    assert status["deals"][0]["url"].startswith("https://www.vinted.pl/items/")
-    assert status["finished_at"] and (tmp_path / "okazje.html").exists()
+    deal = status["deals"][0]
+    assert deal["model"] == "Nike Dunk Low Retro" and deal["retail"] == 499
+    assert deal["retail_source"]["kind"] == "web" and deal["retail_source"]["url"].startswith("https://www.nike.com/")
+    assert deal["url"] == "https://www.vinted.pl/items/1"
+    assert status["ai_cost_usd"] > 0 and status["ai_searches"] == 2
+    assert (tmp_path / "okazje.html").exists() and (tmp_path / "s.json").exists()
 
 
-def test_scan_passes_options_to_screener(server):
-    client = FakeClient()
-    base, _ = server(client)
-    call(base + "/api/scan", {"items": ["Nike Dunk Low"], "min_discount": 60, "use_market": False})
+def test_custom_brand_from_the_page(server):
+    vinted = FakeVinted()
+    base, _ = server(vinted)
+    assert call(base + "/api/scan", {"brands": ["Zara Home"]})[0] == 202
     wait_finished(base)
-    assert len(client.calls) == 1, "bez porównania z rynkiem tylko jedno zapytanie"
-    assert client.calls[0]["price_to"] == pytest.approx(200)
+    assert vinted.calls[0]["text"] == "zara home"
 
 
 def test_second_scan_is_rejected_while_running_and_stop_works(server):
     gate = threading.Event()
-    base, _ = server(FakeClient(gate))
-    assert call(base + "/api/scan", {"items": ["Nike Dunk Low", "Dunk 2"], "use_market": False})[0] == 202
-    code, body = call(base + "/api/scan", {"items": ["Nike Dunk Low"]})
+    base, _ = server(FakeVinted(gate))
+    assert call(base + "/api/scan", {"brands": ["Nike", "adidas"]})[0] == 202
+    code, body = call(base + "/api/scan", {"brands": ["Nike"]})
     assert code == 409 and "trwa" in body
     assert call(base + "/api/stop", {})[0] == 200
     gate.set()
@@ -116,9 +134,11 @@ def test_second_scan_is_rejected_while_running_and_stop_works(server):
 
 @pytest.mark.parametrize(
     "body, error",
-    [({"items": []}, "co najmniej jeden"), ({"items": ["Nieznany"]}, "nieznane"),
-     ({"items": ["Nike Dunk Low"], "min_discount": 150}, "min_discount"),
-     ({"items": ["Nike Dunk Low"], "sizes": "42"}, "sizes")],
+    [({"brands": []}, "co najmniej jedną"), ({"brands": ["x" * 61]}, "60 znaków"),
+     ({"brands": ["Nike"], "min_discount": 150}, "min_discount"),
+     ({"brands": ["Nike"], "sizes": "42"}, "sizes"),
+     ({"brands": ["Nike"], "max_ai_cost": 500}, "limit kosztu"),
+     ({"brands": ["Nike"], "query": 5}, "fraza")],
 )
 def test_scan_validation(server, body, error):
     base, _ = server()
@@ -129,7 +149,7 @@ def test_scan_validation(server, body, error):
 def test_rejects_foreign_host_and_non_json_post(server):
     base, _ = server()
     assert call(base + "/api/status", headers={"Host": "evil.example"})[0] == 403
-    req = urllib.request.Request(base + "/api/scan", data=b"items=x", method="POST",
+    req = urllib.request.Request(base + "/api/scan", data=b"brands=x", method="POST",
                                  headers={"Content-Type": "application/x-www-form-urlencoded"})
     with pytest.raises(urllib.error.HTTPError) as exc:
         urllib.request.urlopen(req, timeout=5)

@@ -1,27 +1,42 @@
 # vinted-screener
 
-Screener okazji na Vinted. Bierze listę fajnych modeli z cenami retail (`watchlist.toml`),
-przegląda najnowsze ogłoszenia i pokazuje tylko te wystawione **dużo poniżej ceny sklepowej**.
-Domyślny próg to co najmniej 50% taniej, a stan nowy z metką, nowy albo bardzo dobry.
+Screener okazji na Vinted. Pokazuje rzeczy wystawione **dużo poniżej ceny sklepowej** (domyślnie
+co najmniej 50% taniej), w stanie nowym z metką, nowym albo bardzo dobrym. Przy każdej okazji
+widać, **skąd jest cena retail**.
 
-Na start watchlista ma 47 modeli w 7 kategoriach: sneakersy (Dunki, Jordany, Samby, New Balance,
-Salomony…), buty, kurtki (Nuptse, Arc'teryx, Barbour…), bluzy i swetry (Carhartt WIP, Stüssy,
-Ralph Lauren, Stone Island, C.P. Company, Tech Fleece…), koszulki polo, spodnie i akcesoria.
+Działa w dwóch trybach:
 
-## Co robi z każdym ogłoszeniem
+- **Po markach (główny, na stronie `serve`).** Wybierasz marki, np. Nike, Carhartt WIP czy Ralph Lauren.
+  Screener bierze najnowsze ogłoszenia tych marek, a cenę retail ustala AI (Claude Opus 5.5): rozpoznaje
+  produkt z tytułu i szuka jego ceny regularnej w sieci. Nie trzeba wpisywać modeli ani cen.
+- **Po modelach z `watchlist.toml`.** Ręczna lista 47 modeli z orientacyjnymi cenami. Jest darmowa
+  i działa bez AI. W trybie marek ta lista służy też jako darmowy szacunek i zapasowe źródło ceny.
 
-1. **Szuka** na Vinted (`api.vinted.pl/svc-catalogue/items`, od najnowszych) w oknie cenowym
-   od „podejrzanie tanio” do „retail − próg rabatu”.
-2. **Dopasowuje** ogłoszenie do modelu. Marka musi się zgadzać, a tytuł musi zawierać wymagane
-   frazy (np. `dunk` + `low`, bez `high`). To odsiewa „Inna marka”, wersje „a'la” i inne modele.
-3. **Odrzuca śmieci:** repliki, same pudełka i sznurówki, rzeczy dziecięce, zamiany i uszkodzone.
-4. **Liczy rabat** od retailu na pełnej cenie dla kupującego (cena + ochrona kupujących, bez wysyłki).
-5. **Porównuje z rynkiem,** czyli z medianą cen najnowszych podobnych ofert na Vinted.
-   Rzecz 60% poniżej retailu, ale droższa niż typowa oferta na Vinted, nie jest prawdziwą okazją.
-6. **Wystawia wynik 0–100:** 65% rabat od retailu, 35% rabat względem mediany Vinted,
-   pomnożone przez stan (nowy z metką 1.0, nowy 0.9, bardzo dobry 0.75).
-7. **Flaguje podejrzane:** ogłoszenia tańsze niż 20–35% retailu (zależnie od tego, jak często
-   marka jest podrabiana) są domyślnie ukryte jako możliwa podróbka albo scam.
+## Skąd jest cena retail (tryb marek)
+
+1. **Rozpoznanie.** Tytuły ogłoszeń idą do Claude partiami po 40. Dla każdego Claude zwraca nazwę
+   produktu (np. „Carhartt WIP Hooded Chase Sweat”), kategorię i szacunek ceny. Ogłoszenia pasujące
+   do modelu z watchlisty pomijają ten krok.
+2. **Kandydaci.** Dalej idą tylko rzeczy, które według szacunku mogą być okazją. Ogłoszenia
+   z ogólnym tytułem (np. „bluza Nike”) odpadają jako „nierozpoznany produkt”.
+3. **Cena w sieci.** Dla każdego kandydata Claude szuka ceny regularnej: najpierw w oficjalnym
+   sklepie marki, potem u autoryzowanych sprzedawców (Zalando, Answear, Footshop…). Nie bierze cen
+   z rynku wtórnego. Podaje adres strony z ceną, a screener sprawdza, że ten adres naprawdę był
+   w wynikach wyszukiwania.
+4. **Źródło na karcie.** Każda okazja ma jedną z trzech etykiet:
+   - **„retail wg nike.com ↗”** to cena znaleziona w sieci, z linkiem do strony,
+   - **„retail wg watchlisty (orientacyjnie)”** to cena z `watchlist.toml`, gdy w sieci się nie udało,
+   - **„⚠ retail to szacunek AI”** to cena bez źródła (pomarańczowa etykieta), z powodem, np. limit kosztu.
+
+   W wynikach jest filtr **„Źródło ceny: tylko potwierdzone w sieci”**.
+5. **Pamięć.** Rozpoznania są pamiętane 14 dni, a ceny produktów 30 dni (`.vinted-screener/state.json`).
+   Kolejne skany płacą tylko za nowe ogłoszenia i nowe produkty.
+
+Rabat liczony jest od pełnej ceny dla kupującego (cena + ochrona kupujących, bez wysyłki).
+Wynik 0–100 łączy rabat od retailu (65%) i rabat względem mediany tego samego produktu na Vinted
+(35%), pomnożone przez stan. Ceny poniżej 20–40% retailu (zależnie od tego, jak często marka jest
+podrabiana) są ukryte jako podejrzane. Repliki, same pudełka, rzeczy dziecięce, zamiany i uszkodzone
+rzeczy odpadają zawsze.
 
 ## Instalacja
 
@@ -32,7 +47,33 @@ python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\act
 pip install -e .
 ```
 
-Jedyna zależność to `curl_cffi`. Podszywa się pod Chrome, bo zwykłe `requests` Vinted często blokuje.
+Zależności to `curl_cffi` (udaje Chrome, bo zwykłe `requests` Vinted blokuje) i `anthropic` (Claude).
+
+### Klucz API
+
+Tryb marek potrzebuje klucza API Anthropic. Utworzysz go na https://console.anthropic.com
+(Settings → API Keys), a płaci się za użycie. Bez klucza strona działa, ale ceny retail są tylko
+dla modeli z watchlisty.
+
+```powershell
+# Windows PowerShell — tylko w tym oknie
+$env:ANTHROPIC_API_KEY = "sk-ant-..."
+# albo na stałe (zadziała w nowo otwartym oknie)
+setx ANTHROPIC_API_KEY "sk-ant-..."
+```
+
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."   # Linux / macOS
+```
+
+**Koszt.** Rozpoznanie 40 tytułów to ok. $0,05, a sprawdzenie ceny jednego produktu w sieci
+ok. $0,05–0,10. Pierwszy skan 3–5 marek to zwykle $1–3, kolejne są tańsze dzięki pamięci.
+Każdy skan ma limit kosztu (domyślnie $2, do zmiany na stronie albo `max_ai_cost` w `watchlist.toml`).
+Po jego osiągnięciu reszta okazji dostaje etykietę „szacunek AI”. Strona i terminal pokazują
+faktyczny koszt skanu.
+
+Model to Claude Opus 5.5. W rzadkim przypadku odmowy odpowiedzi API samo przełącza się na model
+zapasowy (opcja `fallbacks="default"`).
 
 ## Użycie
 
@@ -42,35 +83,39 @@ Jedyna zależność to `curl_cffi`. Podszywa się pod Chrome, bo zwykłe `reques
 python -m vinted_screener serve
 ```
 
-Otwiera się strona `http://127.0.0.1:8765`. Klikasz modele albo całe kategorie, które chcesz
-skanować, ustawiasz rozmiary i minimalny rabat, a potem klikasz **Skanuj**. Okazje pojawiają
-się na bieżąco, a kliknięcie karty otwiera ogłoszenie na Vinted. Strona zapamiętuje Twój wybór.
-Serwer działa tylko lokalnie i kończysz go przez Ctrl+C w terminalu.
+Otwiera się strona `http://127.0.0.1:8765`.
+
+1. Klikasz marki albo dopisujesz własną w polu „inna marka”.
+2. Opcjonalnie zawężasz wyszukiwanie: w polu „Tylko rzeczy” wpisujesz np. „bluza”, możesz też ustawić rozmiary, rabat i limit kosztu AI.
+3. Klikasz **Skanuj**.
+
+Okazje pojawiają się na bieżąco, a kliknięcie karty otwiera ogłoszenie na Vinted. Skan jednej
+marki z AI trwa zwykle 1–2 minuty. Strona zapamiętuje Twój wybór. Serwer działa tylko lokalnie
+i kończysz go przez Ctrl+C w terminalu.
 
 ### Terminal
 
 ```bash
-vinted-screener list                         # modele z watchlisty i progi cenowe
-vinted-screener scan                         # pełny skan → terminal + okazje.html
+vinted-screener scan --brand nike --brand "carhartt wip"   # tryb marek → terminal + okazje.html
+vinted-screener scan --brand "ralph lauren" --query sweter --max-ai-cost 1
+vinted-screener scan                         # tryb modeli z watchlisty (bez AI)
 vinted-screener scan --size 43 --size L      # tylko Twoje rozmiary
 vinted-screener scan --category kurtki --min-discount 60
-vinted-screener scan --only jordan --only dunk --sort newest
-vinted-screener scan --min-market-discount 25   # tylko ≥25% taniej niż mediana na Vinted
-vinted-screener scan --show-suspicious       # pokaż też podejrzanie tanie
-vinted-screener watch --interval 10          # co ~10 min, wypisuje tylko NOWE okazje
+vinted-screener watch --brand nike --interval 15   # co ~15 min, wypisuje tylko NOWE okazje
+vinted-screener list                         # modele i marki z watchlisty
 ```
 
-Zamiast `vinted-screener` można też uruchomić `python -m vinted_screener`. Na Windowsie z Pythonem
-ze Sklepu Microsoft komenda `vinted-screener` często nie jest w PATH, wtedy używaj `python -m vinted_screener`.
+Na Windowsie z Pythonem ze Sklepu Microsoft komenda `vinted-screener` często nie jest w PATH,
+wtedy używaj `python -m vinted_screener`.
 
-Raport `okazje.html` otwierasz w przeglądarce. Ma zdjęcia, filtry (kategoria, model, rabat,
-szukajka) i sortowanie. `--json plik.json` zapisuje wyniki do dalszej obróbki.
+Raport `okazje.html` (zapisywany też po każdym skanie w `serve`) otwierasz w przeglądarce.
+`--json plik.json` zapisuje wyniki do dalszej obróbki.
 
 ### Powiadomienia na Discordzie
 
 ```bash
 export VINTED_DISCORD_WEBHOOK="https://discord.com/api/webhooks/…"
-vinted-screener watch --size 43
+vinted-screener watch --brand nike --size 43
 ```
 
 Pierwszy cykl `watch` tylko zapamiętuje okazje, które już wiszą. Powiadomienia przychodzą
@@ -78,32 +123,20 @@ o nowych. Żeby dostać też obecne, dodaj `--notify-existing`.
 
 ## Dostosowanie
 
-Wszystko jest w `watchlist.toml`. Każde pole ma opis w komentarzu na górze pliku. Dodanie modelu wygląda tak:
-
-```toml
-[[item]]
-name = "Nike Air Max 95"
-category = "Sneakersy"
-query = "nike air max 95"
-retail = 849
-brands = ["Nike"]
-require = ["air max 95|am95"]
-suspicious_below = 25
-```
-
-W `[settings]` ustawisz domyślne rozmiary (`sizes = ["43", "L"]`), próg rabatu, stany i tempo zapytań.
+Wszystko jest w `watchlist.toml`, a każde pole ma opis w komentarzach. Marki do wyboru na stronie
+to sekcje `[[brand]]`. Dla krótkich nazw ustaw `query` (np. On → `on running`), a dla marek
+często podrabianych wyższy `suspicious_below`. Modele z cenami to sekcje `[[item]]`.
+W `[settings]` ustawisz próg rabatu, stany, liczbę stron na markę (`brand_pages`) i limit kosztu AI.
 
 ## Ograniczenia
 
-- **Ceny retail są orientacyjne.** To ceny regularne PLN dla popularnych kolorystyk, a limitowane
-  kolorystyki kosztują więcej. Popraw je, jeśli znasz aktualne.
+- **AI może źle rozpoznać produkt** albo trafić na inną kolorystykę z inną ceną. Dlatego przy każdej
+  cenie jest źródło, a link pozwala to sprawdzić jednym kliknięciem.
 - **API Vinted jest nieoficjalne.** Może się zmienić albo zacząć blokować (HTTP 403/429).
   Nie zmniejszaj `delay` i nie skanuj częściej niż co kilka minut. Przy błędach uruchom
   `scan --only dunk --debug`, wtedy widać zapytania i początek odpowiedzi Vinted.
-- **Dopasowanie działa tylko po tytule i marce,** bo opis ogłoszenia nie przychodzi w wynikach
-  wyszukiwania. Zawsze obejrzyj zdjęcia, opinie sprzedawcy i metki. Niska cena przy markach
-  takich jak Stone Island, Nuptse czy Jordan to częsty sygnał podróbki.
-- Marki podrabiane masowo (Moncler, Canada Goose) są celowo pominięte.
+- **Rozpoznanie działa tylko po tytule i marce,** bo opis ogłoszenia nie przychodzi w wynikach
+  wyszukiwania. Zawsze obejrzyj zdjęcia, opinie sprzedawcy i metki.
 
 ## Testy
 
@@ -111,3 +144,5 @@ W `[settings]` ustawisz domyślne rozmiary (`sizes = ["43", "L"]`), próg rabatu
 pip install -e '.[dev]'
 pytest
 ```
+
+Testy nie łączą się ani z Vinted, ani z Claude: oba klienty są podmieniane.

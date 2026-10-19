@@ -1,5 +1,10 @@
 # Watchlista screenera okazji na Vinted.
 #
+# Dwa tryby:
+#   • po markach ([[brand]], na dole pliku) — skanuje wszystkie rzeczy marki, cenę retail ustala AI
+#     i podaje źródło (link do sklepu); wymaga klucza ANTHROPIC_API_KEY,
+#   • po modelach ([[item]]) — ręczna lista modeli z cenami; w trybie marek służy też jako darmowy szacunek.
+#
 # Ceny "retail" to ORIENTACYJNE regularne ceny w PLN (oficjalne sklepy marek, popularne kolorystyki).
 # Różnią się między kolorystykami i sezonami — popraw je, jeśli znasz aktualne.
 #
@@ -27,6 +32,8 @@ sizes = []                 # np. ["42", "42.5", "M"] — filtruje po rozmiarze; 
 pages = 1                  # stron po 96 najnowszych ogłoszeń na model
 delay = 1.5                # sekundy między zapytaniami (nie zmniejszaj, Vinted blokuje)
 market_ttl_hours = 12      # jak długo trzymać w cache medianę cen z Vinted
+brand_pages = 2            # tryb marek: stron po 96 najnowszych ogłoszeń na markę
+max_ai_cost = 2.0          # tryb marek: limit kosztu AI na jeden skan, w USD (strona pozwala go zmienić)
 
 # ─── Sneakersy ────────────────────────────────────────────────────────────────
 
@@ -452,3 +459,137 @@ retail = 699
 brands = ["Ray-Ban"]
 require = ["wayfarer"]
 suspicious_below = 25
+
+# ─── Marki (tryb marek) ───────────────────────────────────────────────────────
+# name             – nazwa na stronie
+# query            – (opcjonalnie) fraza w wyszukiwarce Vinted, domyślnie nazwa małymi literami
+# aliases          – (opcjonalnie) jak marka nazywa się w ogłoszeniach; "Nike" pasuje też do "Nike SB"
+# suspicious_below – (opcjonalnie) cena poniżej X% retailu = podejrzana; wyżej dla często podrabianych marek
+
+[[brand]]
+name = "Nike"
+suspicious_below = 25
+
+[[brand]]
+name = "Jordan"
+aliases = ["Jordan", "Air Jordan"]
+suspicious_below = 30
+
+[[brand]]
+name = "adidas"
+
+[[brand]]
+name = "New Balance"
+
+[[brand]]
+name = "ASICS"
+
+[[brand]]
+name = "Salomon"
+
+[[brand]]
+name = "Hoka"
+aliases = ["Hoka", "Hoka One One"]
+
+[[brand]]
+name = "On"
+query = "on running"
+aliases = ["On", "On Running"]
+
+[[brand]]
+name = "Converse"
+
+[[brand]]
+name = "Vans"
+
+[[brand]]
+name = "Dr. Martens"
+query = "dr martens"
+
+[[brand]]
+name = "Timberland"
+
+[[brand]]
+name = "UGG"
+suspicious_below = 30
+
+[[brand]]
+name = "Birkenstock"
+
+[[brand]]
+name = "The North Face"
+suspicious_below = 25
+
+[[brand]]
+name = "Arc'teryx"
+query = "arcteryx"
+suspicious_below = 30
+
+[[brand]]
+name = "Patagonia"
+
+[[brand]]
+name = "Columbia"
+
+[[brand]]
+name = "Napapijri"
+
+[[brand]]
+name = "Carhartt WIP"
+
+[[brand]]
+name = "Stüssy"
+query = "stussy"
+suspicious_below = 30
+
+[[brand]]
+name = "Ralph Lauren"
+aliases = ["Ralph Lauren", "Polo Ralph Lauren", "Polo by Ralph Lauren", "Lauren Ralph Lauren"]
+suspicious_below = 25
+
+[[brand]]
+name = "Lacoste"
+suspicious_below = 25
+
+[[brand]]
+name = "Tommy Hilfiger"
+
+[[brand]]
+name = "Calvin Klein"
+
+[[brand]]
+name = "Hugo Boss"
+aliases = ["Hugo Boss", "BOSS", "Hugo"]
+
+[[brand]]
+name = "Levi's"
+query = "levis"
+aliases = ["Levi's", "Levi Strauss & Co."]
+
+[[brand]]
+name = "Stone Island"
+suspicious_below = 35
+
+[[brand]]
+name = "C.P. Company"
+query = "cp company"
+suspicious_below = 35
+
+[[brand]]
+name = "Barbour"
+
+[[brand]]
+name = "Fjällräven"
+query = "fjallraven"
+
+[[brand]]
+name = "lululemon"
+suspicious_below = 25
+
+[[brand]]
+name = "Moncler"
+suspicious_below = 40
+
+[[brand]]
+name = "Canada Goose"
+suspicious_below = 40

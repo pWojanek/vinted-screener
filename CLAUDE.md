@@ -24,3 +24,7 @@ Screener okazji na Vinted (Python 3.11+, CLI + lokalna strona `serve`). Szczegó
 - Gdy Vinted zmieni API, punktem odniesienia jest aktualna wersja biblioteki `vinted_scraper` z PyPI
   (pliki `utils/_constants.py`, `utils/_headers.py`). Użytkownik diagnozuje u siebie przez `scan --debug`.
 - Ceny retail w `watchlist.toml` są orientacyjne.
+- Tryb marek używa Claude (`retail.py`, model `claude-opus-5-5`, wybrany przez użytkownika) i kosztuje.
+  Nowe wywołania AI muszą iść przez `RetailFinder._create` (fallback, licznik kosztu, limit) i mieć cache w `State`.
+  Każda cena retail ma `RetailSource`; nie pokazujemy ceny bez źródła ani linku spoza wyników wyszukiwania.
+- Klucz API: zmienna `ANTHROPIC_API_KEY`; bez niej tryb marek działa tylko na cenach z watchlisty.

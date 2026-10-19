@@ -12,14 +12,16 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
+from vinted_screener.brand_screener import BrandScreener
 from vinted_screener.client import VintedClient
 from vinted_screener.models import normalize
 from vinted_screener.notify import send_discord
 from vinted_screener.report import SORT_KEYS, enable_windows_ansi, money, print_deals, sort_deals, write_html, write_json
 from vinted_screener.screener import Filters, ScanResult, Screener, describe_funnel
+from vinted_screener.retail import RetailFinder, make_anthropic_client
 from vinted_screener.server import ScanService, serve
 from vinted_screener.state import State
-from vinted_screener.watchlist import Settings, WatchItem, WatchlistError, load_watchlist
+from vinted_screener.watchlist import Brand, Settings, WatchItem, WatchlistError, load_brands, load_watchlist
 
 
 def _percent(value: str) -> float:
@@ -50,6 +52,10 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--state", default=".vinted-screener/state.json", metavar="PLIK", help="plik stanu (cache median, widziane oferty)")
     scan.add_argument("-q", "--quiet", action="store_true", help="bez postępu na stderr")
     scan.add_argument("--debug", action="store_true", help="wypisuj zapytania do Vinted i początek odpowiedzi")
+    scan.add_argument("--brand", action="append", default=[], metavar="MARKA",
+                      help="tryb marek: skanuj wszystkie rzeczy marki, cenę retail ustala AI (można powtarzać)")
+    scan.add_argument("--query", default="", metavar="FRAZA", help="tryb marek: dopisz frazę do wyszukiwania, np. bluza")
+    scan.add_argument("--max-ai-cost", type=float, metavar="USD", help="tryb marek: limit kosztu AI na skan (domyślnie z watchlisty)")
 
     parser = argparse.ArgumentParser(
         prog="vinted-screener", description="Szuka na Vinted fajnych rzeczy wystawionych dużo poniżej ceny retail."
@@ -82,13 +88,14 @@ def select_items(items: list[WatchItem], only: list[str], categories: list[str])
     ]
 
 
-def cmd_list(settings: Settings, items: list[WatchItem]) -> int:
+def cmd_list(settings: Settings, items: list[WatchItem], brands: list[Brand]) -> int:
     print(f"{'Model':<34} {'Kategoria':<14} {'Retail':>9} {'Okazja do':>10} {'Podejrz. <':>10}")
     for i in items:
         print(
             f"{i.name:<34.34} {i.category:<14.14} {money(i.retail, settings.currency):>9}"
             f" {money(i.max_price, settings.currency):>10} {money(i.suspicious_price, settings.currency):>10}"
         )
+    print(f"\nMarki (tryb marek, --brand): {', '.join(b.name for b in brands)}")
     return 0
 
 
@@ -98,9 +105,12 @@ def _loggers(args: argparse.Namespace) -> tuple[Callable[[str], None], Callable[
     return log, debug
 
 
-def _make_screener(args: argparse.Namespace, settings: Settings, state: State) -> Screener:
+def _make_runner(
+    args: argparse.Namespace, settings: Settings, items: list[WatchItem], brands: list[Brand], state: State
+) -> Callable[[], ScanResult]:
+    """Skan po modelach z watchlisty albo — z --brand — po markach z cenami z AI."""
     if args.pages:
-        settings = dataclasses.replace(settings, pages=args.pages)
+        settings = dataclasses.replace(settings, pages=args.pages, brand_pages=args.pages)
     filters = Filters(
         min_discount=args.min_discount,
         min_market_discount=args.min_market_discount,
@@ -110,7 +120,23 @@ def _make_screener(args: argparse.Namespace, settings: Settings, state: State) -
     )
     log, debug = _loggers(args)
     client = VintedClient(domain=settings.domain, delay=settings.delay, debug=debug)
-    return Screener(client, settings, filters=filters, state=state, use_market=not args.no_market, log=log, debug=debug)
+    if not args.brand:
+        screener = Screener(client, settings, filters=filters, state=state, use_market=not args.no_market, log=log, debug=debug)
+        return lambda: screener.screen(items)
+
+    known = {normalize(b.name): b for b in brands}
+    chosen = [known.get(normalize(name)) or Brand.custom(name, settings) for name in args.brand]
+    ai_client = make_anthropic_client()
+    if ai_client is None:
+        print("brak ANTHROPIC_API_KEY — ceny retail tylko z watchlisty (patrz README)", file=sys.stderr)
+    max_cost = settings.max_ai_cost if args.max_ai_cost is None else args.max_ai_cost
+
+    def run_brands() -> ScanResult:
+        # nowy licznik kosztu na każdy skan (w trybie watch: na każdy cykl); zapamiętane ceny zostają w State
+        finder = RetailFinder(ai_client, state, max_usd=max_cost, debug=debug) if ai_client else None
+        return BrandScreener(client, settings, finder, items, filters=filters, log=log, debug=debug).screen(chosen, args.query)
+
+    return run_brands
 
 
 def _write_outputs(args: argparse.Namespace, result: ScanResult) -> None:
@@ -131,6 +157,8 @@ def _summary(result: ScanResult, args: argparse.Namespace) -> str:
     text = f"{len(result.deals)} okazji · {result.listings_seen} ogłoszeń · {result.scanned_items} modeli"
     if result.errors:
         text += f" · {len(result.errors)} błędów"
+    if result.ai_cost_usd:
+        text += f" · AI: ${result.ai_cost_usd:.2f}, {result.ai_searches} wyszukiwań"
     if args.html:
         text += f" · raport: {Path(args.html).resolve()}"
     if funnel := describe_funnel(result.funnel):
@@ -140,9 +168,9 @@ def _summary(result: ScanResult, args: argparse.Namespace) -> str:
     return text
 
 
-def cmd_scan(args: argparse.Namespace, settings: Settings, items: list[WatchItem]) -> int:
+def cmd_scan(args: argparse.Namespace, settings: Settings, items: list[WatchItem], brands: list[Brand]) -> int:
     state = State(args.state)
-    result = _make_screener(args, settings, state).screen(items)
+    result = _make_runner(args, settings, items, brands, state)()
     state.save()
     print_deals(sort_deals(result.deals, args.sort)[: args.limit])
     _write_outputs(args, result)
@@ -153,13 +181,13 @@ def cmd_scan(args: argparse.Namespace, settings: Settings, items: list[WatchItem
     return 1 if result.errors and not result.scanned_items else 0
 
 
-def cmd_watch(args: argparse.Namespace, settings: Settings, items: list[WatchItem]) -> int:
+def cmd_watch(args: argparse.Namespace, settings: Settings, items: list[WatchItem], brands: list[Brand]) -> int:
     state = State(args.state)
-    screener = _make_screener(args, settings, state)
+    run = _make_runner(args, settings, items, brands, state)
     first_cycle = not state.seen
     try:
         while True:
-            result = screener.screen(items)
+            result = run()
             new = [d for d in result.deals if not state.is_seen(d.listing.id)]
             for d in result.deals:
                 state.mark_seen(d.listing.id)
@@ -187,10 +215,16 @@ def cmd_watch(args: argparse.Namespace, settings: Settings, items: list[WatchIte
         return 0
 
 
-def cmd_serve(args: argparse.Namespace, settings: Settings, items: list[WatchItem]) -> int:
+def cmd_serve(args: argparse.Namespace, settings: Settings, items: list[WatchItem], brands: list[Brand]) -> int:
     log, debug = _loggers(args)
     client = VintedClient(domain=settings.domain, delay=settings.delay, debug=debug)
-    service = ScanService(settings, items, client, State(args.state), html_path=args.html or None, log=log, debug=debug)
+    ai_client = make_anthropic_client()
+    if ai_client is None:
+        print("uwaga: brak ANTHROPIC_API_KEY — AI wyłączone, ceny retail tylko z watchlisty (patrz README)", file=sys.stderr)
+    service = ScanService(
+        settings, brands, client, State(args.state), ai_client=ai_client,
+        watch_items=items, html_path=args.html or None, log=log, debug=debug,
+    )
     try:
         serve(service, port=args.port, open_browser=not args.no_browser)
     except OSError as exc:
@@ -214,6 +248,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         settings, items = load_watchlist(args.watchlist)
+        brands = load_brands(args.watchlist, settings)
     except WatchlistError as exc:
         print(f"watchlista: {exc}", file=sys.stderr)
         return 2
@@ -222,9 +257,9 @@ def main(argv: list[str] | None = None) -> int:
         print("żaden model z watchlisty nie pasuje do --only/--category", file=sys.stderr)
         return 2
     if args.command == "list":
-        return cmd_list(settings, items)
+        return cmd_list(settings, items, brands)
     if args.command == "scan":
-        return cmd_scan(args, settings, items)
+        return cmd_scan(args, settings, items, brands)
     if args.command == "serve":
-        return cmd_serve(args, settings, items)
-    return cmd_watch(args, settings, items)
+        return cmd_serve(args, settings, items, brands)
+    return cmd_watch(args, settings, items, brands)

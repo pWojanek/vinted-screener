@@ -1,4 +1,4 @@
-"""Tryb serve: lokalna strona, na której wybiera się modele do skanowania i ogląda wyniki na żywo."""
+"""Tryb serve: lokalna strona, na której wybiera się marki do skanowania i ogląda wyniki na żywo."""
 
 from __future__ import annotations
 
@@ -13,33 +13,44 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import urlsplit
 
+from vinted_screener.brand_screener import BrandScreener
 from vinted_screener.client import VintedClient
+from vinted_screener.models import normalize
 from vinted_screener.report import deal_to_dict, render_page, sort_deals, write_html
-from vinted_screener.screener import Filters, ScanResult, Screener, describe_funnel
+from vinted_screener.retail import MODEL, RetailFinder
+from vinted_screener.screener import Filters, ScanResult, describe_funnel
 from vinted_screener.state import State
-from vinted_screener.watchlist import Settings, WatchItem
+from vinted_screener.watchlist import Brand, Settings, WatchItem
 
 MAX_BODY = 64 * 1024
 ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
+MAX_BRANDS = 40
+MAX_AI_COST = 50.0  # górna granica limitu z formularza, w USD
+# orientacyjny czas na markę: 2 strony z Vinted + rozpoznanie i wyszukiwanie cen przez AI
+SECONDS_PER_BRAND_AI, SECONDS_PER_BRAND_PLAIN = 90, 8
 
 
 class ScanService:
-    """Trzyma watchlistę, klienta Vinted i stan bieżącego skanu (jeden skan naraz)."""
+    """Trzyma marki, klienta Vinted, opcjonalnego klienta Claude i stan bieżącego skanu (jeden skan naraz)."""
 
     def __init__(
         self,
         settings: Settings,
-        items: list[WatchItem],
+        brands: list[Brand],
         client: VintedClient,
         state: State,
+        ai_client: Any = None,
+        watch_items: list[WatchItem] = (),
         html_path: str | None = None,
         log: Callable[[str], None] = lambda msg: None,
         debug: Callable[[str], None] | None = None,
     ) -> None:
         self.settings = settings
-        self.items = {i.name: i for i in items}
+        self.brands = {normalize(b.name): b for b in brands}
         self.client = client
         self.state = state
+        self.ai_client = ai_client
+        self.watch_items = list(watch_items)
         self.html_path = html_path
         self.log = log
         self.debug = debug
@@ -51,80 +62,91 @@ class ScanService:
     @staticmethod
     def _empty_job() -> dict[str, Any]:
         return {
-            "running": False, "done": 0, "total": 0, "current": None, "deals": [], "errors": {},
-            "funnel": "", "listings_seen": 0, "started_at": None, "finished_at": None,
+            "running": False, "done": 0, "total": 0, "current": None, "deals": [], "errors": {}, "funnel": "",
+            "listings_seen": 0, "ai_cost_usd": 0.0, "ai_searches": 0, "started_at": None, "finished_at": None,
         }
 
     def watchlist(self) -> dict[str, Any]:
+        ai = self.ai_client is not None
         return {
             "currency": self.settings.currency,
-            "seconds_per_request": round(self.settings.delay * 1.25 + 0.5, 2),
-            "items": [
-                {"name": i.name, "category": i.category, "retail": i.retail, "max_price": round(i.max_price)}
-                for i in self.items.values()
-            ],
+            "ai_enabled": ai,
+            "ai_model": MODEL if ai else None,
+            "max_ai_cost": self.settings.max_ai_cost,
+            "min_discount": round(self.settings.min_discount * 100),
+            "seconds_per_brand": SECONDS_PER_BRAND_AI if ai else SECONDS_PER_BRAND_PLAIN,
+            "brands": [b.name for b in self.brands.values()],
         }
 
     def status(self) -> dict[str, Any]:
         with self._lock:
             return {**self._job, "deals": list(self._job["deals"]), "errors": dict(self._job["errors"])}
 
+    def _brand(self, name: str) -> Brand:
+        return self.brands.get(normalize(name)) or Brand.custom(name.strip(), self.settings)
+
     def start(self, request: dict[str, Any]) -> tuple[int, dict[str, Any]]:
-        names = request.get("items")
+        names = request.get("brands")
         if not isinstance(names, list) or not names:
-            return 400, {"error": "wybierz co najmniej jeden model"}
-        unknown = [n for n in names if n not in self.items]
-        if unknown:
-            return 400, {"error": f"nieznane modele: {', '.join(map(str, unknown))}"}
+            return 400, {"error": "wybierz co najmniej jedną markę"}
+        if len(names) > MAX_BRANDS or not all(isinstance(n, str) and 0 < len(n.strip()) <= 60 for n in names):
+            return 400, {"error": f"marki muszą być nazwami do 60 znaków, najwyżej {MAX_BRANDS}"}
         min_discount = request.get("min_discount")
         if min_discount is not None and (not isinstance(min_discount, (int, float)) or not 0 <= min_discount < 100):
             return 400, {"error": "min_discount musi być procentem 0-99"}
         sizes = request.get("sizes") or []
         if not isinstance(sizes, list) or not all(isinstance(s, str) for s in sizes):
             return 400, {"error": "sizes musi być listą tekstów"}
+        query = request.get("query") or ""
+        if not isinstance(query, str) or len(query) > 60:
+            return 400, {"error": "fraza może mieć najwyżej 60 znaków"}
+        max_cost = request.get("max_ai_cost", self.settings.max_ai_cost)
+        if not isinstance(max_cost, (int, float)) or not 0 <= max_cost <= MAX_AI_COST:
+            return 400, {"error": f"limit kosztu AI musi być liczbą 0-{MAX_AI_COST:.0f} USD"}
 
         filters = Filters(
             min_discount=None if min_discount is None else min_discount / 100,
             sizes=tuple(sizes),
             show_suspicious=bool(request.get("show_suspicious")),
         )
-        items = [self.items[n] for n in names]
+        brands = list({normalize(n): self._brand(n) for n in names}.values())
         with self._lock:
             if self._job["running"]:
                 return 409, {"error": "skan już trwa"}
-            self._job = {**self._empty_job(), "running": True, "total": len(items), "current": items[0].name,
+            self._job = {**self._empty_job(), "running": True, "total": len(brands), "current": brands[0].name,
                          "started_at": datetime.now(timezone.utc).isoformat()}
         self._stop.clear()
-        self._thread = threading.Thread(
-            target=self._run, args=(items, filters, bool(request.get("use_market", True))), daemon=True
-        )
+        self._thread = threading.Thread(target=self._run, args=(brands, query.strip(), filters, float(max_cost)), daemon=True)
         self._thread.start()
-        return 202, {"started": len(items)}
+        return 202, {"started": len(brands)}
 
     def stop(self) -> None:
         self._stop.set()
 
-    def _run(self, items: list[WatchItem], filters: Filters, use_market: bool) -> None:
-        screener = Screener(
-            self.client, self.settings, filters=filters, state=self.state, use_market=use_market, log=self.log, debug=self.debug
+    def _snapshot(self, result: ScanResult) -> dict[str, Any]:
+        return {
+            "deals": [deal_to_dict(d) for d in result.deals],
+            "errors": dict(result.errors),
+            "funnel": describe_funnel(result.funnel),
+            "listings_seen": result.listings_seen,
+            "ai_cost_usd": result.ai_cost_usd,
+            "ai_searches": result.ai_searches,
+        }
+
+    def _run(self, brands: list[Brand], query: str, filters: Filters, max_cost: float) -> None:
+        finder = RetailFinder(self.ai_client, self.state, max_usd=max_cost, debug=self.debug) if self.ai_client else None
+        screener = BrandScreener(
+            self.client, self.settings, finder, self.watch_items, filters=filters, log=self.log, debug=self.debug
         )
 
-        def on_item(i: int, item: WatchItem, result: ScanResult) -> None:
-            snapshot = {
-                "done": i,
-                "current": items[i].name if i < len(items) else None,
-                "deals": [deal_to_dict(d) for d in result.deals],
-                "errors": dict(result.errors),
-                "funnel": describe_funnel(result.funnel),
-                "listings_seen": result.listings_seen,
-            }
+        def on_brand(i: int, brand: Brand, result: ScanResult) -> None:
+            snapshot = {**self._snapshot(result), "done": i, "current": brands[i].name if i < len(brands) else None}
             with self._lock:
                 self._job.update(snapshot)
 
         result = None
         try:
-            result = screener.screen(items, on_item=on_item, should_stop=self._stop.is_set)
-            self.state.save()
+            result = screener.screen(brands, query, on_item=on_brand, should_stop=self._stop.is_set)
             if self.html_path:
                 meta = {"generated_at": datetime.now(timezone.utc).isoformat(), "scanned_items": result.scanned_items,
                         "listings_seen": result.listings_seen, "errors": len(result.errors)}
@@ -134,10 +156,10 @@ class ScanService:
             with self._lock:
                 self._job["errors"] = {**self._job["errors"], "(błąd)": f"{type(exc).__name__}: {exc}"}
         finally:
+            self.state.save()  # zapamiętane ceny i rozpoznania przydadzą się także po przerwanym skanie
             with self._lock:
                 if result is not None:
-                    self._job["errors"] = dict(result.errors)
-                    self._job["deals"] = [deal_to_dict(d) for d in result.deals]
+                    self._job.update(self._snapshot(result))
                 self._job.update(running=False, current=None, finished_at=datetime.now(timezone.utc).isoformat())
 
 

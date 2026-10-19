@@ -115,7 +115,7 @@ def test_screen_collects_errors_and_sorts_by_score():
     other = make_item(name="B", retail=1000)
     client = FakeClient([raw_item("Nike Dunk Low", 200, id=1)])
     result = screener(client, use_market=False).screen([good, other])
-    assert [d.item.name for d in result.deals] == ["B", "A"]
+    assert [d.model for d in result.deals] == ["B", "A"]
     assert result.scanned_items == 2
 
     result = screener(FakeClient([], fail=True)).screen([good])

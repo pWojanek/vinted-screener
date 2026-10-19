@@ -6,10 +6,7 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from vinted_screener.watchlist import WatchItem
+from typing import Any
 
 # Vinted zwraca stan jako zlokalizowany tekst; w zapytaniu filtruje się po ID:
 # 6 = nowy z metką, 1 = nowy bez metki, 2 = bardzo dobry, 3 = dobry, 4 = zadowalający.
@@ -135,9 +132,24 @@ class Listing:
 
 
 @dataclass(frozen=True)
+class RetailSource:
+    """Skąd jest cena retail — pokazywane przy każdej okazji."""
+
+    kind: str  # "web" (znaleziona w sieci), "watchlist" (ręcznie w watchlist.toml), "estimate" (szacunek AI)
+    label: str  # np. "nike.com", "watchlista", "szacunek AI"
+    url: str | None = None
+    product: str | None = None  # dla jakiego produktu jest ta cena
+    note: str | None = None
+    checked_at: str | None = None  # ISO, kiedy sprawdzono
+
+
+@dataclass(frozen=True)
 class Deal:
-    item: WatchItem
     listing: Listing
+    model: str  # nazwa produktu, np. "Nike Dunk Low Retro"
+    category: str
+    retail: float
+    retail_source: RetailSource
     retail_discount: float  # 0.6 = 60% taniej niż retail
     market_median: float | None  # mediana cen podobnych ofert na Vinted
     market_discount: float | None  # 0.3 = 30% taniej niż mediana

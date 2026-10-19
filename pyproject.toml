@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "curl_cffi>=0.7",
+    "anthropic>=1.15",
 ]
 
 [project.optional-dependencies]

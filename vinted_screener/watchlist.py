@@ -44,6 +44,24 @@ def compile_term(term: str) -> re.Pattern[str]:
 
 _GLOBAL_EXCLUDE_PATTERNS = tuple(compile_term(t) for t in GLOBAL_EXCLUDE)
 
+BrandKeys = tuple[tuple[str, str], ...]
+
+
+def brand_keys(brands: tuple[str, ...]) -> BrandKeys:
+    return tuple((normalize(b), normalize(b).replace(" ", "")) for b in brands)
+
+
+def brand_in(keys: BrandKeys, brand: str) -> bool:
+    """"Nike" pasuje też do "Nike SB" / "Nike ACG", ale "On" nie pasuje do "Only"."""
+    spaced = normalize(brand)
+    compact = spaced.replace(" ", "")
+    return any(compact == b_compact or spaced.startswith(b_spaced + " ") for b_spaced, b_compact in keys)
+
+
+def globally_excluded(haystack: str) -> bool:
+    """Repliki, same pudełka, rzeczy dziecięce, zamiany, uszkodzone; haystack po normalize()."""
+    return any(p.search(haystack) for p in _GLOBAL_EXCLUDE_PATTERNS)
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -57,6 +75,8 @@ class Settings:
     per_page: int = 96
     delay: float = 1.5
     market_ttl_hours: float = 12.0
+    brand_pages: int = 2  # tryb marek: stron po 96 najnowszych ogłoszeń na markę
+    max_ai_cost: float = 2.0  # tryb marek: limit kosztu AI na jeden skan, w USD
 
     @property
     def site_url(self) -> str:
@@ -75,15 +95,14 @@ class WatchItem:
     brands: tuple[str, ...] = ()
     require: tuple[str, ...] = ()
     exclude: tuple[str, ...] = ()
-    _brand_keys: tuple[tuple[str, str], ...] = field(default=(), repr=False, compare=False)
+    _brand_keys: BrandKeys = field(default=(), repr=False, compare=False)
     _require: tuple[re.Pattern[str], ...] = field(default=(), repr=False, compare=False)
     _exclude: tuple[re.Pattern[str], ...] = field(default=(), repr=False, compare=False)
 
     def __post_init__(self) -> None:
-        brand_keys = tuple((normalize(b), normalize(b).replace(" ", "")) for b in self.brands)
-        object.__setattr__(self, "_brand_keys", brand_keys)
+        object.__setattr__(self, "_brand_keys", brand_keys(self.brands))
         object.__setattr__(self, "_require", tuple(compile_term(t) for t in self.require))
-        object.__setattr__(self, "_exclude", tuple(compile_term(t) for t in self.exclude) + _GLOBAL_EXCLUDE_PATTERNS)
+        object.__setattr__(self, "_exclude", tuple(compile_term(t) for t in self.exclude))
 
     @property
     def max_price(self) -> float:
@@ -96,12 +115,7 @@ class WatchItem:
         return self.retail * self.suspicious_below
 
     def brand_matches(self, brand: str) -> bool:
-        if not self._brand_keys:
-            return True
-        spaced = normalize(brand)
-        compact = spaced.replace(" ", "")
-        # "Nike" pasuje też do "Nike SB" / "Nike ACG", ale "On" nie pasuje do "Only".
-        return any(compact == b_compact or spaced.startswith(b_spaced + " ") for b_spaced, b_compact in self._brand_keys)
+        return not self._brand_keys or brand_in(self._brand_keys, brand)
 
     def matches(self, listing: Listing) -> bool:
         if not self.brand_matches(listing.brand):
@@ -109,7 +123,29 @@ class WatchItem:
         haystack = normalize(f"{listing.title} {listing.brand}")
         if not all(p.search(haystack) for p in self._require):
             return False
-        return not any(p.search(haystack) for p in self._exclude)
+        return not any(p.search(haystack) for p in self._exclude) and not globally_excluded(haystack)
+
+
+@dataclass(frozen=True)
+class Brand:
+    """Marka do skanowania w trybie marek — bez listy modeli, ceny retail ustala AI."""
+
+    name: str
+    query: str
+    aliases: tuple[str, ...]
+    suspicious_below: float
+    _keys: BrandKeys = field(default=(), repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_keys", brand_keys(self.aliases or (self.name,)))
+
+    @classmethod
+    def custom(cls, name: str, settings: Settings) -> Brand:
+        """Marka wpisana ręcznie na stronie, spoza watchlisty."""
+        return cls(name=name, query=name.lower(), aliases=(name,), suspicious_below=settings.suspicious_below)
+
+    def matches(self, listing: Listing) -> bool:
+        return brand_in(self._keys, listing.brand) and not globally_excluded(normalize(f"{listing.title} {listing.brand}"))
 
 
 def size_matches(size: str, wanted: tuple[str, ...]) -> bool:
@@ -134,14 +170,44 @@ def _str_tuple(value: Any, name: str) -> tuple[str, ...]:
     return tuple(value)
 
 
-def load_watchlist(path: str | Path) -> tuple[Settings, list[WatchItem]]:
-    path = Path(path)
+def _read_toml(path: Path) -> dict[str, Any]:
     try:
-        data = tomllib.loads(path.read_text(encoding="utf-8"))
+        return tomllib.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         raise WatchlistError(f"nie znaleziono pliku {path}") from None
     except tomllib.TOMLDecodeError as exc:
         raise WatchlistError(f"{path}: błąd składni TOML: {exc}") from None
+
+
+def load_brands(path: str | Path, settings: Settings) -> list[Brand]:
+    brands = []
+    seen = set()
+    for i, raw in enumerate(_read_toml(Path(path)).get("brand", []), start=1):
+        where = f"brand #{i} ({raw.get('name', '?')})"
+        name = raw.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise WatchlistError(f"{where}: brak pola 'name'")
+        if normalize(name) in seen:
+            raise WatchlistError(f"{where}: zdublowana marka")
+        seen.add(normalize(name))
+        try:
+            suspicious = _pct(raw["suspicious_below"], "suspicious_below") if "suspicious_below" in raw else settings.suspicious_below
+            brands.append(
+                Brand(
+                    name=name,
+                    query=raw.get("query", name.lower()),
+                    aliases=_str_tuple(raw.get("aliases", [name]), "aliases"),
+                    suspicious_below=suspicious,
+                )
+            )
+        except WatchlistError as exc:
+            raise WatchlistError(f"{where}: {exc}") from None
+    return brands
+
+
+def load_watchlist(path: str | Path) -> tuple[Settings, list[WatchItem]]:
+    path = Path(path)
+    data = _read_toml(path)
 
     raw_settings = data.get("settings", {})
     defaults = Settings()
@@ -156,6 +222,8 @@ def load_watchlist(path: str | Path) -> tuple[Settings, list[WatchItem]]:
         per_page=min(int(raw_settings.get("per_page", defaults.per_page)), 96),
         delay=float(raw_settings.get("delay", defaults.delay)),
         market_ttl_hours=float(raw_settings.get("market_ttl_hours", defaults.market_ttl_hours)),
+        brand_pages=int(raw_settings.get("brand_pages", defaults.brand_pages)),
+        max_ai_cost=float(raw_settings.get("max_ai_cost", defaults.max_ai_cost)),
     )
 
     items = []

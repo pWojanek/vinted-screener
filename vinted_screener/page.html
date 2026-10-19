@@ -8,21 +8,22 @@
 <style>
 :root {
   --bg: #f6f6f3; --card: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #e3e3dd;
-  --accent: #007782; --accent-soft: #e0f1f2; --good: #1a7f37; --warn: #b54708; --bad: #c4320a;
+  --accent: #007782; --accent-soft: #e0f1f2; --good: #1a7f37; --warn: #b54708; --warn-soft: #fdf1e4; --bad: #c4320a;
 }
 @media (prefers-color-scheme: dark) {
   :root { --bg: #141413; --card: #1f1f1d; --text: #ecece8; --muted: #9a9a93; --line: #33332f;
-          --accent: #3fb6c0; --accent-soft: #173a3d; --good: #4ac26b; --warn: #f0a24a; --bad: #ff7a59; }
+          --accent: #3fb6c0; --accent-soft: #173a3d; --good: #4ac26b; --warn: #f0a24a; --warn-soft: #3a2a17; --bad: #ff7a59; }
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text);
        font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+a { color: var(--accent); }
 .wrap { max-width: 1280px; margin: 0 auto; padding-left: 16px; padding-right: 16px; }
 header { padding-top: 20px; padding-bottom: 8px; }
 h1 { margin: 0 0 4px; font-size: 24px; }
 h2 { margin: 0; font-size: 17px; }
 .meta, .small { color: var(--muted); font-size: 13px; }
-button, select, input[type=search], input[type=text] {
+button, select, input[type=search], input[type=text], input[type=number] {
   font: inherit; color: var(--text); background: var(--card);
   border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px;
 }
@@ -34,24 +35,26 @@ button:disabled { opacity: .5; cursor: default; }
 /* panel wyboru (tylko w trybie serve) */
 .panel { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin: 8px 0 4px; }
 .panel-head { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; justify-content: space-between; }
-.group { margin-top: 12px; }
-.group-head { display: flex; gap: 10px; align-items: baseline; margin-bottom: 6px; }
-.group-head strong { font-size: 14px; }
-.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.notice { margin-top: 10px; font-size: 13px; padding: 8px 10px; border-radius: 8px; background: var(--accent-soft); }
+.notice.off { background: var(--warn-soft); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
 .summary { margin-top: 8px; font-size: 14px; }
-.collapsed #groups, .collapsed .bulk { display: none; }
+.collapsed .chips, .collapsed .bulk, .collapsed .add, .collapsed .notice:not(.off) { display: none; }
 .panel:not(.collapsed) .summary { display: none; }
 .chip { border-radius: 999px; padding: 4px 12px; font-size: 13px; }
 .chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
-.chip .r { color: var(--muted); margin-left: 4px; font-size: 12px; }
+.chip .x { margin-left: 6px; color: var(--muted); }
+.add { display: flex; gap: 6px; margin-top: 10px; }
+.add input { width: 200px; }
 .options { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin-top: 14px;
            padding-top: 12px; border-top: 1px solid var(--line); }
 .options label, .controls label { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
-.options input[type=text] { width: 130px; }
+.options input[type=text] { width: 150px; }
+.options input[type=number] { width: 80px; }
 .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; }
 .bar { height: 6px; background: var(--line); border-radius: 999px; overflow: hidden; margin-top: 12px; }
 .bar > div { height: 100%; width: 0; background: var(--accent); transition: width .3s; }
-.err { color: var(--bad); margin-top: 6px; }
+.err { color: var(--bad); margin-top: 6px; white-space: pre-line; }
 
 /* wyniki */
 .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding-top: 12px; padding-bottom: 12px; }
@@ -59,8 +62,9 @@ input[type=search] { min-width: 180px; }
 main { display: grid; gap: 14px; padding-bottom: 40px; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
 @media (max-width: 520px) { main { grid-template-columns: 1fr 1fr; gap: 10px; } .price { font-size: 17px; } }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
-        display: flex; flex-direction: column; text-decoration: none; color: inherit; }
+        display: flex; flex-direction: column; }
 .card:hover { border-color: var(--accent); }
+.card-main { text-decoration: none; color: inherit; display: flex; flex-direction: column; }
 .photo { aspect-ratio: 3 / 4; background: var(--line) center / cover no-repeat; position: relative; }
 .badge { position: absolute; top: 8px; left: 8px; background: var(--good); color: #fff; font-weight: 700;
          padding: 3px 8px; border-radius: 999px; font-size: 14px; }
@@ -68,11 +72,14 @@ main { display: grid; gap: 14px; padding-bottom: 40px; grid-template-columns: re
          padding: 3px 8px; border-radius: 999px; font-size: 12px; }
 .sus { position: absolute; bottom: 8px; left: 8px; right: 8px; background: var(--bad); color: #fff;
        font-size: 12px; padding: 3px 8px; border-radius: 6px; text-align: center; }
-.body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 4px; }
+.body { padding: 10px 12px 0; display: flex; flex-direction: column; gap: 4px; }
+.foot { padding: 4px 12px 12px; display: flex; flex-direction: column; gap: 4px; }
 .model { font-size: 12px; color: var(--accent); font-weight: 600; text-transform: uppercase; letter-spacing: .02em; }
 .title { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .price { font-size: 20px; font-weight: 700; }
 .price s { font-size: 13px; color: var(--muted); font-weight: 400; margin-left: 6px; }
+.src { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.src.est { color: var(--warn); }
 .mk-good { color: var(--good); } .mk-bad { color: var(--warn); }
 .empty { grid-column: 1 / -1; text-align: center; color: var(--muted); padding: 60px 0; }
 </style>
@@ -86,20 +93,27 @@ main { display: grid; gap: 14px; padding-bottom: 40px; grid-template-columns: re
 <section id="scanner" class="wrap" hidden>
   <div class="panel" id="panel">
     <div class="panel-head">
-      <h2>Co skanować</h2>
+      <h2>Marki do skanowania</h2>
       <div class="small"><span id="sel-count"></span>
-        <span class="bulk"> · <button type="button" class="link" id="sel-all">zaznacz wszystko</button> ·
-        <button type="button" class="link" id="sel-none">odznacz wszystko</button></span> ·
+        <span class="bulk"> · <button type="button" class="link" id="sel-all">zaznacz wszystkie</button> ·
+        <button type="button" class="link" id="sel-none">odznacz</button></span> ·
         <button type="button" class="link" id="collapse"></button></div>
     </div>
     <div class="summary" id="summary"></div>
-    <div id="groups"></div>
+    <div class="notice" id="ai-status"></div>
+    <div class="chips" id="brands"></div>
+    <form class="add" id="add-form">
+      <input type="text" id="add-brand" placeholder="inna marka, np. Moncler" maxlength="60" aria-label="Dodaj markę">
+      <button type="submit">Dodaj</button>
+    </form>
     <div class="options">
+      <label>Tylko rzeczy <input type="text" id="o-query" placeholder="np. bluza, kurtka" maxlength="60"
+        title="Dopisywane do wyszukiwania na Vinted; puste = wszystko"></label>
       <label>Rozmiary <input type="text" id="o-sizes" placeholder="np. 43 L 42,5" title="Oddziel spacją; puste = wszystkie"></label>
       <label>Min. rabat <select id="o-disc">
-        <option value="">jak w watchliście</option><option value="40">40%</option><option value="50">50%</option>
+        <option value="40">40%</option><option value="50">50%</option>
         <option value="60">60%</option><option value="70">70%</option></select></label>
-      <label><input type="checkbox" id="o-market" checked> porównaj z cenami na Vinted</label>
+      <label id="o-cost-label">Limit kosztu AI <input type="number" id="o-cost" min="0" max="50" step="0.5"> USD</label>
       <label><input type="checkbox" id="o-sus"> szukaj też podejrzanie tanich</label>
     </div>
     <div class="actions">
@@ -118,10 +132,13 @@ main { display: grid; gap: 14px; padding-bottom: 40px; grid-template-columns: re
 <div class="controls wrap">
   <input type="search" id="q" placeholder="Szukaj w tytule…" aria-label="Szukaj w tytule">
   <label>Kategoria <select id="cat"><option value="">wszystkie</option></select></label>
-  <label>Model <select id="model"><option value="">wszystkie</option></select></label>
+  <label>Produkt <select id="model"><option value="">wszystkie</option></select></label>
   <label>Min. rabat <select id="disc">
     <option value="0">dowolny</option><option value="0.5">50%</option><option value="0.6">60%</option>
     <option value="0.7">70%</option><option value="0.8">80%</option></select></label>
+  <label>Źródło ceny <select id="src">
+    <option value="">dowolne</option><option value="web">tylko potwierdzone w sieci</option>
+    <option value="noest">bez szacunków AI</option></select></label>
   <label>Sortuj <select id="sort">
     <option value="score">wynik</option><option value="discount">rabat</option>
     <option value="price">cena</option><option value="newest">najnowsze</option></select></label>
@@ -135,6 +152,7 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const zl = (v, cur) => v == null ? "—" : Math.round(v).toLocaleString("pl-PL") + (cur === "PLN" ? " zł" : " " + cur);
 const pct = (v) => Math.round(v * 100) + "%";
+const usd = (v) => "$" + (v || 0).toFixed(2);
 const store = {
   get(key, fallback) { try { const v = localStorage.getItem(key); return v == null ? fallback : JSON.parse(v); } catch { return fallback; } },
   set(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch {} },
@@ -161,6 +179,17 @@ const sorters = {
   price: (a, b) => a.total_price - b.total_price,
   newest: (a, b) => (b.uploaded_at || "").localeCompare(a.uploaded_at || ""),
 };
+function sourceLine(d) {
+  const s = d.retail_source || { kind: "watchlist", label: "watchlista" };
+  const details = [s.product && `produkt: ${s.product}`, s.checked_at && `sprawdzono ${s.checked_at}`, s.note].filter(Boolean).join(" · ");
+  if (s.kind === "web" && s.url) {
+    return `<div class="src" title="${esc(details)}">retail wg <a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.label)} ↗</a>${s.note ? " · " + esc(s.note) : ""}</div>`;
+  }
+  if (s.kind === "estimate") {
+    return `<div class="src est" title="${esc(details)}">⚠ retail to ${esc(s.label)}${s.note ? " — " + esc(s.note) : ""}</div>`;
+  }
+  return `<div class="src" title="${esc(details)}">retail wg ${esc(s.label)}</div>`;
+}
 function card(d) {
   let market = "";
   if (d.market_median != null) {
@@ -169,19 +198,25 @@ function card(d) {
       (d.market_discount != null ? ` · <span class="${cls}">${d.market_discount > 0 ? "−" : "+"}${pct(Math.abs(d.market_discount))}</span>` : "") +
       `</div>`;
   }
-  return `<a class="card" href="${esc(d.url)}" target="_blank" rel="noopener">
-    <div class="photo" style="background-image:url('${esc(d.photo || "")}')">
-      <span class="badge">−${pct(d.retail_discount)}</span><span class="score">${d.score.toFixed(0)} pkt</span>
-      ${d.suspicious ? '<span class="sus">⚠ podejrzanie tanio — sprawdź autentyczność</span>' : ""}
-    </div>
-    <div class="body">
-      <div class="model">${esc(d.model)}</div>
-      <div class="title" title="${esc(d.title)}">${esc(d.title)}</div>
-      <div class="price">${zl(d.total_price, d.currency)}<s>${zl(d.retail, d.currency)}</s></div>
+  const estimated = d.retail_source && d.retail_source.kind === "estimate";
+  return `<div class="card">
+    <a class="card-main" href="${esc(d.url)}" target="_blank" rel="noopener">
+      <div class="photo" style="background-image:url('${esc(d.photo || "")}')">
+        <span class="badge">−${pct(d.retail_discount)}</span><span class="score">${d.score.toFixed(0)} pkt</span>
+        ${d.suspicious ? '<span class="sus">⚠ podejrzanie tanio — sprawdź autentyczność</span>' : ""}
+      </div>
+      <div class="body">
+        <div class="model">${esc(d.model)}</div>
+        <div class="title" title="${esc(d.title)}">${esc(d.title)}</div>
+        <div class="price">${zl(d.total_price, d.currency)}<s>${estimated ? "~" : ""}${zl(d.retail, d.currency)}</s></div>
+      </div>
+    </a>
+    <div class="foot">
+      ${sourceLine(d)}
       ${market}
       <div class="small">${esc(d.size || "?")} · ${esc(d.condition)} · ♥ ${d.favourites}</div>
       <div class="small">${esc(d.seller)} · ${age(d.uploaded_at)}</div>
-    </div></a>`;
+    </div></div>`;
 }
 function setDeals(list, emptyText) {
   deals = list;
@@ -192,29 +227,33 @@ function setDeals(list, emptyText) {
 let lastEmptyText = "Brak okazji dla wybranych filtrów.";
 function render(emptyText) {
   if (emptyText) lastEmptyText = emptyText;
-  const q = $("q").value.trim().toLowerCase(), cat = $("cat").value, model = $("model").value;
+  const q = $("q").value.trim().toLowerCase(), cat = $("cat").value, model = $("model").value, src = $("src").value;
   const minDisc = parseFloat($("disc").value), showSus = $("sus").checked;
+  const kind = (d) => (d.retail_source || {}).kind;
   const rows = deals.filter((d) =>
     (!cat || d.category === cat) && (!model || d.model === model) && d.retail_discount >= minDisc &&
-    (showSus || !d.suspicious) && (!q || (d.title + " " + d.model).toLowerCase().includes(q))
+    (showSus || !d.suspicious) && (!q || (d.title + " " + d.model).toLowerCase().includes(q)) &&
+    (!src || (src === "web" ? kind(d) === "web" : kind(d) !== "estimate"))
   ).sort(sorters[$("sort").value]);
   $("grid").innerHTML = rows.length ? rows.map(card).join("") : `<div class="empty">${esc(lastEmptyText)}</div>`;
 }
-["q", "cat", "model", "disc", "sort", "sus"].forEach((id) => $(id).addEventListener("input", () => render()));
+["q", "cat", "model", "disc", "src", "sort", "sus"].forEach((id) => $(id).addEventListener("input", () => render()));
 
 // ─── raport statyczny ──────────────────────────────────────────────────────────
 if (BOOT.mode === "static") {
   const m = BOOT.meta;
   $("meta").textContent = `Wygenerowano ${new Date(m.generated_at).toLocaleString("pl-PL")} · ` +
-    `${BOOT.deals.length} okazji z ${m.listings_seen} przejrzanych ogłoszeń · ${m.scanned_items} modeli` +
+    `${BOOT.deals.length} okazji z ${m.listings_seen} przejrzanych ogłoszeń` +
     (m.errors ? ` · błędy: ${m.errors}` : "");
   setDeals(BOOT.deals);
 }
 
-// ─── tryb serve: wybór modeli i skan na żywo ─────────────────────────────────
+// ─── tryb serve: wybór marek i skan na żywo ──────────────────────────────────
 if (BOOT.mode === "app") {
   $("scanner").hidden = false;
-  let catalog = null, selected = new Set(), polling = null;
+  let catalog = null, polling = null;
+  let custom = store.get("vs-custom-brands", []);
+  let selected = new Set();
 
   async function api(path, body) {
     const opts = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
@@ -223,35 +262,51 @@ if (BOOT.mode === "app") {
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
     return data;
   }
+  const allBrands = () => [...catalog.brands, ...custom.filter((c) => !catalog.brands.some((b) => b.toLowerCase() === c.toLowerCase()))];
+  function save() { store.set("vs-brands", [...selected]); store.set("vs-custom-brands", custom); }
 
-  function saveSelection() { store.set("vs-selection", [...selected]); }
+  function renderBrands() {
+    $("brands").innerHTML = allBrands().map((b) => {
+      const isCustom = !catalog.brands.includes(b);
+      return `<button type="button" class="chip" data-name="${esc(b)}" aria-pressed="${selected.has(b)}">${esc(b)}` +
+        (isCustom ? `<span class="x" data-remove="${esc(b)}" title="usuń markę">×</span>` : "") + `</button>`;
+    }).join("");
+    updateCounts();
+  }
   function updateCounts() {
-    for (const g of document.querySelectorAll(".group")) {
-      const names = catalog.items.filter((i) => i.category === g.dataset.category).map((i) => i.name);
-      const n = names.filter((x) => selected.has(x)).length;
-      g.querySelector(".count").textContent = `${n}/${names.length}`;
-      g.querySelector(".toggle").textContent = n === names.length ? "odznacz kategorię" : "zaznacz kategorię";
-    }
-    for (const chip of document.querySelectorAll(".chip")) chip.setAttribute("aria-pressed", selected.has(chip.dataset.name));
-    $("sel-count").textContent = `wybrane: ${selected.size} z ${catalog.items.length}`;
-    $("summary").textContent = selectionSummary() || "nic nie wybrano";
-    const perModel = (catalog.seconds_per_request || 2) * ($("o-market").checked ? 2 : 1);
-    const minutes = Math.ceil(selected.size * perModel / 60);
-    $("estimate").textContent = selected.size ? `${selected.size} modeli · ok. ${minutes} min` : "wybierz co najmniej jeden model";
-    $("scan").disabled = !selected.size || $("scan").dataset.running === "1";
+    const list = allBrands().filter((b) => selected.has(b));
+    $("sel-count").textContent = `wybrane: ${list.length} z ${allBrands().length}`;
+    $("summary").textContent = list.length ? list.join(" · ") + ($("o-query").value.trim() ? ` — tylko: ${$("o-query").value.trim()}` : "") : "nic nie wybrano";
+    const minutes = Math.max(1, Math.round(list.length * catalog.seconds_per_brand / 60));
+    $("estimate").textContent = list.length ? `${list.length} marek · ok. ${minutes} min` +
+      (catalog.ai_enabled ? ` · koszt AI najwyżej ${usd(parseFloat($("o-cost").value) || 0)}` : "") : "wybierz co najmniej jedną markę";
+    $("scan").disabled = !list.length || $("scan").dataset.running === "1";
   }
-  function selectionSummary() {
-    // całe kategorie po nazwie, z częściowo wybranych pojedyncze modele (albo "x z y")
-    const parts = [];
-    for (const cat of new Set(catalog.items.map((i) => i.category))) {
-      const names = catalog.items.filter((i) => i.category === cat).map((i) => i.name);
-      const chosen = names.filter((n) => selected.has(n));
-      if (chosen.length === names.length) parts.push(cat);
-      else if (chosen.length > 3) parts.push(`${cat}: ${chosen.length} z ${names.length}`);
-      else parts.push(...chosen);
+  $("brands").addEventListener("click", (e) => {
+    const remove = e.target.closest("[data-remove]");
+    if (remove) {
+      custom = custom.filter((c) => c !== remove.dataset.remove);
+      selected.delete(remove.dataset.remove);
+    } else {
+      const chip = e.target.closest(".chip");
+      if (!chip) return;
+      selected.has(chip.dataset.name) ? selected.delete(chip.dataset.name) : selected.add(chip.dataset.name);
     }
-    return parts.join(" + ");
-  }
+    save(); renderBrands();
+  });
+  $("add-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const name = $("add-brand").value.trim();
+    if (!name) return;
+    const existing = allBrands().find((b) => b.toLowerCase() === name.toLowerCase());
+    if (!existing) custom.push(name);
+    selected.add(existing || name);
+    $("add-brand").value = "";
+    save(); renderBrands();
+  });
+  $("sel-all").onclick = () => { allBrands().forEach((b) => selected.add(b)); save(); renderBrands(); };
+  $("sel-none").onclick = () => { selected.clear(); save(); renderBrands(); };
+
   function setCollapsed(collapsed) {
     $("panel").classList.toggle("collapsed", collapsed);
     $("collapse").textContent = collapsed ? "zmień wybór" : "zwiń";
@@ -259,46 +314,34 @@ if (BOOT.mode === "app") {
   }
   $("collapse").onclick = () => setCollapsed(!$("panel").classList.contains("collapsed"));
 
-  function buildPicker() {
-    const categories = [...new Set(catalog.items.map((i) => i.category))];
-    $("groups").innerHTML = categories.map((cat) => `
-      <div class="group" data-category="${esc(cat)}">
-        <div class="group-head"><strong>${esc(cat)}</strong><span class="small count"></span>
-          <button type="button" class="link toggle"></button></div>
-        <div class="chips">${catalog.items.filter((i) => i.category === cat).map((i) =>
-          `<button type="button" class="chip" data-name="${esc(i.name)}" aria-pressed="false"
-             title="okazja do ${zl(i.max_price, catalog.currency)}">${esc(i.name)}<span class="r">${zl(i.retail, catalog.currency)}</span></button>`
-        ).join("")}</div>
-      </div>`).join("");
-    $("groups").addEventListener("click", (e) => {
-      const chip = e.target.closest(".chip");
-      if (chip) {
-        selected.has(chip.dataset.name) ? selected.delete(chip.dataset.name) : selected.add(chip.dataset.name);
-      } else if (e.target.classList.contains("toggle")) {
-        const cat = e.target.closest(".group").dataset.category;
-        const names = catalog.items.filter((i) => i.category === cat).map((i) => i.name);
-        const all = names.every((n) => selected.has(n));
-        names.forEach((n) => all ? selected.delete(n) : selected.add(n));
-      } else return;
-      saveSelection(); updateCounts();
-    });
-  }
-  $("sel-all").onclick = () => { catalog.items.forEach((i) => selected.add(i.name)); saveSelection(); updateCounts(); };
-  $("sel-none").onclick = () => { selected.clear(); saveSelection(); updateCounts(); };
-
-  const optionIds = ["o-sizes", "o-disc", "o-market", "o-sus"];
+  const optionIds = ["o-query", "o-sizes", "o-disc", "o-cost", "o-sus"];
   function loadOptions() {
-    const o = store.get("vs-options", {});
-    if (o.sizes != null) $("o-sizes").value = o.sizes;
-    if (o.disc != null) $("o-disc").value = o.disc;
-    if (o.market != null) $("o-market").checked = o.market;
-    if (o.sus != null) $("o-sus").checked = o.sus;
+    const o = store.get("vs-options-v2", {});
+    $("o-query").value = o.query ?? "";
+    $("o-sizes").value = o.sizes ?? "";
+    $("o-disc").value = o.disc ?? String(catalog.min_discount);
+    if (!$("o-disc").value) $("o-disc").value = "50";
+    $("o-cost").value = o.cost ?? catalog.max_ai_cost;
+    $("o-sus").checked = o.sus ?? false;
   }
   function saveOptions() {
-    store.set("vs-options", { sizes: $("o-sizes").value, disc: $("o-disc").value, market: $("o-market").checked, sus: $("o-sus").checked });
+    store.set("vs-options-v2", { query: $("o-query").value, sizes: $("o-sizes").value, disc: $("o-disc").value,
+                                 cost: $("o-cost").value, sus: $("o-sus").checked });
     updateCounts();
   }
-  optionIds.forEach((id) => $(id).addEventListener("change", saveOptions));
+  optionIds.forEach((id) => $(id).addEventListener("input", saveOptions));
+
+  function showAiStatus() {
+    if (catalog.ai_enabled) {
+      $("ai-status").textContent = `Ceny retail ustala AI (${catalog.ai_model}): rozpoznaje produkt z tytułu ` +
+        "i szuka ceny regularnej w sieci. Przy każdej okazji widać źródło: link do sklepu albo „szacunek AI”.";
+    } else {
+      $("ai-status").classList.add("off");
+      $("ai-status").textContent = "AI wyłączone — brak klucza ANTHROPIC_API_KEY. Ceny retail będą tylko dla modeli " +
+        "z watchlisty. Jak włączyć: README → „Klucz API”.";
+      $("o-cost-label").hidden = true;
+    }
+  }
 
   function showStatus(s) {
     const running = s.running;
@@ -309,12 +352,13 @@ if (BOOT.mode === "app") {
     $("bar-fill").style.width = s.total ? `${Math.round(100 * s.done / s.total)}%` : "0";
     const parts = [];
     if (running) parts.push(`${s.done}/${s.total}` + (s.current ? ` · teraz: ${s.current}` : ""));
-    else if (s.finished_at) parts.push(`zakończono ${new Date(s.finished_at).toLocaleTimeString("pl-PL")} · ${s.done}/${s.total} modeli`);
+    else if (s.finished_at) parts.push(`zakończono ${new Date(s.finished_at).toLocaleTimeString("pl-PL")} · ${s.done}/${s.total} marek`);
     if (s.total) parts.push(`${s.deals.length} okazji z ${s.listings_seen} ogłoszeń`);
+    if (s.ai_cost_usd || s.ai_searches) parts.push(`AI: ${usd(s.ai_cost_usd)}, ${s.ai_searches} wyszukiwań`);
     if (s.funnel) parts.push(`odpadło: ${s.funnel}`);
     $("progress-text").textContent = parts.join(" · ");
     $("scan-errors").textContent = Object.entries(s.errors || {}).map(([k, v]) => `${k}: ${v}`).join("\n");
-    $("meta").textContent = s.finished_at || running ? "" : "Wybierz modele i kliknij „Skanuj”. Wyniki pojawiają się na bieżąco.";
+    $("meta").textContent = s.finished_at || running ? "" : "Wybierz marki i kliknij „Skanuj”. Wyniki pojawiają się na bieżąco.";
     const empty = running ? "Szukam… okazje pojawią się tutaj." : s.total ? "Brak okazji dla wybranych filtrów." : "Jeszcze nic nie skanowano.";
     setDeals(s.deals, empty);
     updateCounts();
@@ -332,12 +376,13 @@ if (BOOT.mode === "app") {
 
   $("scan").onclick = async () => {
     const sizes = $("o-sizes").value.replace(/,\s/g, " ").split(/[\s;]+/).filter(Boolean);
+    const body = {
+      brands: allBrands().filter((b) => selected.has(b)), query: $("o-query").value.trim(), sizes,
+      min_discount: Number($("o-disc").value), show_suspicious: $("o-sus").checked,
+    };
+    if (catalog.ai_enabled) body.max_ai_cost = Math.min(50, Math.max(0, parseFloat($("o-cost").value) || 0));
     try {
-      await api("/api/scan", {
-        items: catalog.items.map((i) => i.name).filter((n) => selected.has(n)),
-        sizes, min_discount: $("o-disc").value === "" ? null : Number($("o-disc").value),
-        use_market: $("o-market").checked, show_suspicious: $("o-sus").checked,
-      });
+      await api("/api/scan", body);
       if ($("o-sus").checked) $("sus").checked = true;
       setCollapsed(true);
       await poll(); startPolling();
@@ -349,14 +394,14 @@ if (BOOT.mode === "app") {
     try {
       catalog = await api("/api/watchlist");
     } catch (e) {
-      $("meta").textContent = "Nie udało się wczytać watchlisty: " + e.message;
+      $("meta").textContent = "Nie udało się wczytać listy marek: " + e.message;
       return;
     }
-    const known = new Set(catalog.items.map((i) => i.name));
-    const saved = store.get("vs-selection", null);
-    selected = new Set(saved ? saved.filter((n) => known.has(n)) : catalog.items.map((i) => i.name));
-    buildPicker(); loadOptions(); updateCounts();
-    setCollapsed(store.get("vs-collapsed", false));
+    const known = new Set(allBrands());
+    const saved = store.get("vs-brands", null);
+    selected = new Set(saved ? saved.filter((n) => known.has(n)) : []);
+    showAiStatus(); loadOptions(); renderBrands();
+    setCollapsed(store.get("vs-collapsed", false) && selected.size > 0);
     await poll();
     if ($("scan").dataset.running === "1") startPolling();
   })();
