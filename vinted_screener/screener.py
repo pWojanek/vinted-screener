@@ -5,6 +5,7 @@ from __future__ import annotations
 import statistics
 from collections import Counter
 from collections.abc import Callable
+from typing import TypeAlias
 from dataclasses import dataclass, field
 
 from vinted_screener.client import VintedClient, VintedError
@@ -44,7 +45,7 @@ def _sample(raw: dict) -> str:
         return f"nieczytelne: {str(raw)[:150]}"
     return (
         f"{listing.title!r} | marka={listing.brand!r} | stan={listing.condition!r}"
-        f" | rozmiar={listing.size!r} | cena={listing.total_price:.2f} {listing.currency}"
+        f" | rozmiar={listing.size!r} | cena={listing.total_price:.2f} {listing.currency} | url z API={raw.get('url')!r}"
     )
 
 
@@ -67,6 +68,10 @@ class ScanResult:
     scanned_items: int = 0
     listings_seen: int = 0
     funnel: Counter[str] = field(default_factory=Counter)
+
+
+# wołane po każdym modelu: (numer modelu od 1, model, wynik do tej pory)
+ItemCallback: TypeAlias = Callable[[int, WatchItem, ScanResult], None]
 
 
 @dataclass(frozen=True)
@@ -102,7 +107,7 @@ class Screener:
         funnel = funnel if funnel is not None else Counter()
         listings = []
         for raw in raw_items:
-            listing = Listing.from_api(raw)
+            listing = Listing.from_api(raw, self.settings.site_url)
             if listing is None:
                 funnel["unparsed"] += 1
             elif listing.currency and listing.currency != self.settings.currency:
@@ -207,10 +212,18 @@ class Screener:
         for sample in raw[:3]:
             self.debug(f"  przykład: {_sample(sample)}")
 
-    def screen(self, items: list[WatchItem]) -> ScanResult:
+    def screen(
+        self,
+        items: list[WatchItem],
+        on_item: ItemCallback | None = None,
+        should_stop: Callable[[], bool] | None = None,
+    ) -> ScanResult:
         result = ScanResult()
         consecutive_errors = 0
         for i, item in enumerate(items, start=1):
+            if should_stop and should_stop():
+                result.errors["(przerwano)"] = f"zatrzymano, pominięto {len(items) - i + 1} modeli"
+                break
             self.log(f"[{i}/{len(items)}] {item.name}…")
             try:
                 deals, funnel = self.screen_item(item)
@@ -218,6 +231,8 @@ class Screener:
                 result.errors[item.name] = str(exc)
                 self.log(f"    błąd: {exc}")
                 consecutive_errors += 1
+                if on_item:
+                    on_item(i, item, result)
                 if consecutive_errors >= MAX_CONSECUTIVE_ERRORS and i < len(items):
                     result.errors["(przerwano)"] = f"{consecutive_errors} błędy z rzędu, pominięto {len(items) - i} modeli"
                     break
@@ -227,5 +242,7 @@ class Screener:
             result.listings_seen += funnel["fetched"]
             result.funnel.update(funnel)
             result.deals.extend(deals)
+            if on_item:
+                on_item(i, item, result)
         result.deals.sort(key=lambda d: d.score, reverse=True)
         return result

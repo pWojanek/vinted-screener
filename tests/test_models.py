@@ -85,3 +85,9 @@ def test_parse_tolerates_missing_photo_and_user():
     raw = raw_item("Dunk", 100, photo=None, user=None)
     listing = Listing.from_api(raw)
     assert listing.photo_url is None and listing.uploaded_at is None and listing.seller == ""
+
+
+def test_url_is_built_from_id_not_taken_from_api():
+    raw = raw_item("Dunk", 100, id=10446365514, url="https://www.vinted.pl/catalog?search_text=dunk")
+    assert Listing.from_api(raw).url == "https://www.vinted.pl/items/10446365514"
+    assert Listing.from_api(raw, "https://www.vinted.de").url == "https://www.vinted.de/items/10446365514"

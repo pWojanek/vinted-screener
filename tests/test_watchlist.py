@@ -102,3 +102,29 @@ def test_load_watchlist_errors(tmp_path):
     path.write_text("[settings]\n")
     with pytest.raises(WatchlistError, match="brak pozycji"):
         load_watchlist(path)
+
+
+@pytest.mark.parametrize(
+    "model, title, brand, expected",
+    [
+        ("Carhartt WIP bluza", "Bluza Carhartt WIP z kapturem hooded chase", "Carhartt WIP", True),
+        ("Carhartt WIP bluza", "Carhartt WIP Detroit jacket", "Carhartt WIP", False),
+        ("Carhartt WIP bluza", "Bluza Carhartt workwear", "Carhartt", False),
+        ("Stüssy bluza", "Stussy hoodie basic logo", "Stüssy", True),
+        ("Ralph Lauren bluza", "Bluza z kapturem Polo Ralph Lauren", "Polo Ralph Lauren", True),
+        ("Ralph Lauren bluza", "Sweter Ralph Lauren cable knit", "Polo Ralph Lauren", False),
+        ("C.P. Company bluza", "CP Company goggle hoodie", "C.P. Company", True),
+        ("lululemon Scuba", "Lululemon Scuba oversized half zip", "lululemon", True),
+        ("Patagonia Synchilla", "Polar Patagonia Synchilla Snap-T", "Patagonia", True),
+        ("Ralph Lauren koszulka polo", "Koszulka polo Ralph Lauren custom slim fit", "Polo Ralph Lauren", True),
+        ("Ralph Lauren koszulka polo", "Polówka Ralph Lauren granatowa", "Ralph Lauren", True),
+        ("Lacoste koszulka polo", "Lacoste koszulka polo L1212 biała", "Lacoste", True),
+        ("Lacoste koszulka polo", "Bluza Lacoste polo", "Lacoste", False),
+        ("Carhartt WIP Double Knee", "Spodnie Carhartt WIP Double Knee pant", "Carhartt WIP", True),
+        ("Napapijri Rainforest / Skidoo", "Kurtka Napapijri Rainforest winter", "Napapijri", True),
+    ],
+)
+def test_bundled_clothing_matching(model, title, brand, expected):
+    _, items = load_watchlist(ROOT / "watchlist.toml")
+    item = next(i for i in items if i.name == model)
+    assert item.matches(listing(title, brand=brand)) is expected

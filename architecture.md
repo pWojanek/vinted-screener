@@ -3,7 +3,9 @@
 ```
 watchlist.toml ──► watchlist.py ──► WatchItem (retail, marki, frazy require/exclude, progi)
                                         │
-cli.py (scan/watch/list) ──► screener.py ── dla każdego WatchItem:
+cli.py (scan/watch/list)  ┐
+server.py (serve: page.html ┴─► screener.py ── dla każdego WatchItem:
+  + /api/scan, /api/status)
                                         │   1. client.search(query, okno cenowe, stany)       → kandydaci
                                         │   2. Listing.from_api + WatchItem.matches + size_matches
                                         │   3. market_median (osobne zapytanie bez okna cen, cache w State)
@@ -19,7 +21,9 @@ cli.py (scan/watch/list) ──► screener.py ── dla każdego WatchItem:
 | `watchlist.py` | Wczytanie i walidacja TOML, DSL fraz (`a\|b`, `prefix*`, sklejanie słów), dopasowanie marki, globalne wykluczenia (repliki, pudełka, dzieci…), `size_matches`. |
 | `screener.py` | Logika okazji: okno cenowe, filtry, mediana rynkowa, `deal_score`. Liczy lejek odrzuceń (`ScanResult.funnel`, pokazywany w podsumowaniu) i w `--debug` wypisuje pola oraz przykłady surowych ogłoszeń. Klient wstrzykiwany, więc testy go podmieniają. |
 | `state.py` | `.vinted-screener/state.json`: widziane ID (tryb watch, TTL 14 dni) i cache median (TTL z ustawień). |
-| `report.py` | Wypisywanie w terminalu, JSON i samodzielny HTML (dane jako JSON w `<script>`, renderowane w JS). |
+| `report.py` | Wypisywanie w terminalu, JSON i `render_page()`, czyli `page.html` z wstrzykniętym `BOOT`. |
+| `page.html` | Jedna strona w dwóch trybach. `{"mode": "static", deals, meta}` to raport `okazje.html`, a `{"mode": "app"}` to panel wyboru modeli w `serve`, który odpytuje `/api/status` co sekundę. Karty i filtry wyników są wspólne. Wybór i opcje pamięta `localStorage`. |
+| `server.py` | `serve`: `ThreadingHTTPServer` tylko na 127.0.0.1. `ScanService` puszcza jeden skan naraz w wątku i aktualizuje stan po każdym modelu (`Screener.screen(on_item=…, should_stop=…)`). Endpointy: `GET /api/watchlist`, `GET /api/status`, `POST /api/scan`, `POST /api/stop`. Obce nagłówki `Host` dostają 403, a POST bez JSON dostaje 415 (ochrona przed DNS rebinding i CSRF). |
 | `notify.py` | Payloady Discorda (maks. 10 embedów na wiadomość). |
 
 ## Zasady
@@ -30,4 +34,5 @@ cli.py (scan/watch/list) ──► screener.py ── dla każdego WatchItem:
   inaczej `None`. Liczona tylko wtedy, gdy model ma jakichś kandydatów, co oszczędza zapytania.
 - **Stan filtrowany dwa razy:** `attribute_ids[status]` w zapytaniu i jeszcze raz po tekście stanu (`condition_status_id`),
   gdyby API zignorowało filtr.
+- **Link do ogłoszenia budujemy z ID** (`<site_url>/items/<id>`), bo pole `url` z API prowadziło w złe miejsce.
 - **Brak sieci w testach:** `tests/conftest.py::raw_item` odwzorowuje kształt odpowiedzi API.

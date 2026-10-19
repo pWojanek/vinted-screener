@@ -291,11 +291,19 @@ retail = 1499
 brands = ["Barbour"]
 require = ["bedale|beaufort|ashby|border|wax*|woskowan*"]
 
-# ─── Odzież ───────────────────────────────────────────────────────────────────
+[[item]]
+name = "Napapijri Rainforest / Skidoo"
+category = "Kurtki"
+query = "napapijri rainforest"
+retail = 749
+brands = ["Napapijri"]
+require = ["rainforest|skidoo"]
+
+# ─── Bluzy i swetry ───────────────────────────────────────────────────────────
 
 [[item]]
 name = "Patagonia Better Sweater"
-category = "Odzież"
+category = "Bluzy i swetry"
 query = "patagonia better sweater"
 retail = 649
 brands = ["Patagonia"]
@@ -303,7 +311,7 @@ require = ["better sweater"]
 
 [[item]]
 name = "Ralph Lauren sweter z warkoczem"
-category = "Odzież"
+category = "Bluzy i swetry"
 query = "ralph lauren cable knit"
 retail = 899
 brands = ["Ralph Lauren", "Polo Ralph Lauren", "Polo by Ralph Lauren"]
@@ -312,7 +320,7 @@ suspicious_below = 20
 
 [[item]]
 name = "Stone Island bluza"
-category = "Odzież"
+category = "Bluzy i swetry"
 query = "stone island bluza"
 retail = 1199
 brands = ["Stone Island"]
@@ -321,7 +329,7 @@ suspicious_below = 35
 
 [[item]]
 name = "Nike Tech Fleece bluza"
-category = "Odzież"
+category = "Bluzy i swetry"
 query = "nike tech fleece bluza"
 retail = 549
 brands = ["Nike"]
@@ -330,12 +338,99 @@ exclude = ["spodnie|joggers|komplet|dres"]
 suspicious_below = 25
 
 [[item]]
+name = "Patagonia Synchilla"
+category = "Bluzy i swetry"
+query = "patagonia synchilla"
+retail = 549
+brands = ["Patagonia"]
+require = ["synchilla|snap t"]
+
+[[item]]
+name = "Carhartt WIP bluza"
+category = "Bluzy i swetry"
+query = "carhartt wip bluza"
+retail = 449
+brands = ["Carhartt WIP"]
+require = ["bluza|hoodie|hooded|sweat*|crewneck"]
+exclude = ["kurtka|jacket|spodnie|pants"]
+
+[[item]]
+name = "Stüssy bluza"
+category = "Bluzy i swetry"
+query = "stussy bluza"
+retail = 649
+brands = ["Stüssy"]
+require = ["bluza|hoodie|hood|crewneck|sweat*"]
+suspicious_below = 30
+
+[[item]]
+name = "Ralph Lauren bluza"
+category = "Bluzy i swetry"
+query = "ralph lauren bluza"
+retail = 699
+brands = ["Ralph Lauren", "Polo Ralph Lauren", "Polo by Ralph Lauren"]
+require = ["bluza|hoodie|kaptur*"]
+exclude = ["sweter|cable*|warkocz*|kurtka"]
+suspicious_below = 25
+
+[[item]]
+name = "C.P. Company bluza"
+category = "Bluzy i swetry"
+query = "cp company bluza"
+retail = 1199
+brands = ["C.P. Company"]
+require = ["bluza|hoodie|crewneck|sweat*|goggle"]
+exclude = ["kurtka|jacket"]
+suspicious_below = 35
+
+[[item]]
+name = "lululemon Scuba"
+category = "Bluzy i swetry"
+query = "lululemon scuba"
+retail = 549
+brands = ["lululemon"]
+require = ["scuba"]
+suspicious_below = 25
+
+# ─── Koszulki ─────────────────────────────────────────────────────────────────
+
+[[item]]
+name = "Ralph Lauren koszulka polo"
+category = "Koszulki"
+query = "ralph lauren koszulka polo"
+retail = 449
+brands = ["Ralph Lauren", "Polo Ralph Lauren", "Polo by Ralph Lauren"]
+require = ["koszulka polo|polowka|polo shirt|polo koszulka"]
+exclude = ["bluza|sweter|kurtka"]
+suspicious_below = 25
+
+[[item]]
+name = "Lacoste koszulka polo"
+category = "Koszulki"
+query = "lacoste polo"
+retail = 449
+brands = ["Lacoste"]
+require = ["polo|polowka|l1212|l 12 12"]
+exclude = ["bluza|sweter|kurtka|spodnie|dres"]
+suspicious_below = 25
+
+# ─── Spodnie i legginsy ───────────────────────────────────────────────────────
+
+[[item]]
 name = "lululemon Align legginsy"
-category = "Odzież"
+category = "Spodnie i legginsy"
 query = "lululemon align"
 retail = 449
 brands = ["lululemon"]
 require = ["align"]
+
+[[item]]
+name = "Carhartt WIP Double Knee"
+category = "Spodnie i legginsy"
+query = "carhartt double knee"
+retail = 549
+brands = ["Carhartt WIP"]
+require = ["double knee"]
 
 # ─── Akcesoria ────────────────────────────────────────────────────────────────
 

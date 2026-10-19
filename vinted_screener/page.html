@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Okazje na Vinted</title>
+<link rel="icon" href="data:,">
+<style>
+:root {
+  --bg: #f6f6f3; --card: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #e3e3dd;
+  --accent: #007782; --accent-soft: #e0f1f2; --good: #1a7f37; --warn: #b54708; --bad: #c4320a;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #141413; --card: #1f1f1d; --text: #ecece8; --muted: #9a9a93; --line: #33332f;
+          --accent: #3fb6c0; --accent-soft: #173a3d; --good: #4ac26b; --warn: #f0a24a; --bad: #ff7a59; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+       font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.wrap { max-width: 1280px; margin: 0 auto; padding-left: 16px; padding-right: 16px; }
+header { padding-top: 20px; padding-bottom: 8px; }
+h1 { margin: 0 0 4px; font-size: 24px; }
+h2 { margin: 0; font-size: 17px; }
+.meta, .small { color: var(--muted); font-size: 13px; }
+button, select, input[type=search], input[type=text] {
+  font: inherit; color: var(--text); background: var(--card);
+  border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px;
+}
+button { cursor: pointer; }
+button:disabled { opacity: .5; cursor: default; }
+.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; padding: 8px 18px; }
+.link { border: 0; background: none; padding: 0; color: var(--accent); font-size: 13px; }
+
+/* panel wyboru (tylko w trybie serve) */
+.panel { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin: 8px 0 4px; }
+.panel-head { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; justify-content: space-between; }
+.group { margin-top: 12px; }
+.group-head { display: flex; gap: 10px; align-items: baseline; margin-bottom: 6px; }
+.group-head strong { font-size: 14px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.summary { margin-top: 8px; font-size: 14px; }
+.collapsed #groups, .collapsed .bulk { display: none; }
+.panel:not(.collapsed) .summary { display: none; }
+.chip { border-radius: 999px; padding: 4px 12px; font-size: 13px; }
+.chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+.chip .r { color: var(--muted); margin-left: 4px; font-size: 12px; }
+.options { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin-top: 14px;
+           padding-top: 12px; border-top: 1px solid var(--line); }
+.options label, .controls label { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+.options input[type=text] { width: 130px; }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; }
+.bar { height: 6px; background: var(--line); border-radius: 999px; overflow: hidden; margin-top: 12px; }
+.bar > div { height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+.err { color: var(--bad); margin-top: 6px; }
+
+/* wyniki */
+.controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding-top: 12px; padding-bottom: 12px; }
+input[type=search] { min-width: 180px; }
+main { display: grid; gap: 14px; padding-bottom: 40px; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+@media (max-width: 520px) { main { grid-template-columns: 1fr 1fr; gap: 10px; } .price { font-size: 17px; } }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+        display: flex; flex-direction: column; text-decoration: none; color: inherit; }
+.card:hover { border-color: var(--accent); }
+.photo { aspect-ratio: 3 / 4; background: var(--line) center / cover no-repeat; position: relative; }
+.badge { position: absolute; top: 8px; left: 8px; background: var(--good); color: #fff; font-weight: 700;
+         padding: 3px 8px; border-radius: 999px; font-size: 14px; }
+.score { position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,.65); color: #fff;
+         padding: 3px 8px; border-radius: 999px; font-size: 12px; }
+.sus { position: absolute; bottom: 8px; left: 8px; right: 8px; background: var(--bad); color: #fff;
+       font-size: 12px; padding: 3px 8px; border-radius: 6px; text-align: center; }
+.body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 4px; }
+.model { font-size: 12px; color: var(--accent); font-weight: 600; text-transform: uppercase; letter-spacing: .02em; }
+.title { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.price { font-size: 20px; font-weight: 700; }
+.price s { font-size: 13px; color: var(--muted); font-weight: 400; margin-left: 6px; }
+.mk-good { color: var(--good); } .mk-bad { color: var(--warn); }
+.empty { grid-column: 1 / -1; text-align: center; color: var(--muted); padding: 60px 0; }
+</style>
+</head>
+<body>
+<header class="wrap">
+  <h1>Okazje na Vinted</h1>
+  <div class="meta" id="meta"></div>
+</header>
+
+<section id="scanner" class="wrap" hidden>
+  <div class="panel" id="panel">
+    <div class="panel-head">
+      <h2>Co skanować</h2>
+      <div class="small"><span id="sel-count"></span>
+        <span class="bulk"> · <button type="button" class="link" id="sel-all">zaznacz wszystko</button> ·
+        <button type="button" class="link" id="sel-none">odznacz wszystko</button></span> ·
+        <button type="button" class="link" id="collapse"></button></div>
+    </div>
+    <div class="summary" id="summary"></div>
+    <div id="groups"></div>
+    <div class="options">
+      <label>Rozmiary <input type="text" id="o-sizes" placeholder="np. 43 L 42,5" title="Oddziel spacją; puste = wszystkie"></label>
+      <label>Min. rabat <select id="o-disc">
+        <option value="">jak w watchliście</option><option value="40">40%</option><option value="50">50%</option>
+        <option value="60">60%</option><option value="70">70%</option></select></label>
+      <label><input type="checkbox" id="o-market" checked> porównaj z cenami na Vinted</label>
+      <label><input type="checkbox" id="o-sus"> szukaj też podejrzanie tanich</label>
+    </div>
+    <div class="actions">
+      <button type="button" class="primary" id="scan">Skanuj</button>
+      <button type="button" id="stop" hidden>Zatrzymaj</button>
+      <span class="small" id="estimate"></span>
+    </div>
+    <div id="progress" hidden>
+      <div class="bar"><div id="bar-fill"></div></div>
+      <div class="small" id="progress-text" style="margin-top:6px"></div>
+    </div>
+    <div class="small err" id="scan-errors"></div>
+  </div>
+</section>
+
+<div class="controls wrap">
+  <input type="search" id="q" placeholder="Szukaj w tytule…" aria-label="Szukaj w tytule">
+  <label>Kategoria <select id="cat"><option value="">wszystkie</option></select></label>
+  <label>Model <select id="model"><option value="">wszystkie</option></select></label>
+  <label>Min. rabat <select id="disc">
+    <option value="0">dowolny</option><option value="0.5">50%</option><option value="0.6">60%</option>
+    <option value="0.7">70%</option><option value="0.8">80%</option></select></label>
+  <label>Sortuj <select id="sort">
+    <option value="score">wynik</option><option value="discount">rabat</option>
+    <option value="price">cena</option><option value="newest">najnowsze</option></select></label>
+  <label><input type="checkbox" id="sus"> pokaż podejrzane</label>
+</div>
+<main id="grid" class="wrap"></main>
+
+<script>
+const BOOT = __BOOT__;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const zl = (v, cur) => v == null ? "—" : Math.round(v).toLocaleString("pl-PL") + (cur === "PLN" ? " zł" : " " + cur);
+const pct = (v) => Math.round(v * 100) + "%";
+const store = {
+  get(key, fallback) { try { const v = localStorage.getItem(key); return v == null ? fallback : JSON.parse(v); } catch { return fallback; } },
+  set(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch {} },
+};
+
+// ─── wyniki (wspólne dla raportu statycznego i trybu serve) ───────────────────
+let deals = [];
+function age(iso) {
+  if (!iso) return "";
+  const min = Math.max(0, Math.floor((Date.now() - new Date(iso)) / 60000));
+  if (min < 60) return min + " min temu";
+  if (min < 2880) return Math.floor(min / 60) + " h temu";
+  return Math.floor(min / 1440) + " dni temu";
+}
+function fillSelect(sel, values) {
+  const current = sel.value;
+  sel.length = 1;
+  [...new Set(values)].sort().forEach((v) => sel.add(new Option(v, v)));
+  sel.value = [...sel.options].some((o) => o.value === current) ? current : "";
+}
+const sorters = {
+  score: (a, b) => b.score - a.score,
+  discount: (a, b) => b.retail_discount - a.retail_discount,
+  price: (a, b) => a.total_price - b.total_price,
+  newest: (a, b) => (b.uploaded_at || "").localeCompare(a.uploaded_at || ""),
+};
+function card(d) {
+  let market = "";
+  if (d.market_median != null) {
+    const cls = d.market_discount > 0 ? "mk-good" : "mk-bad";
+    market = `<div class="small">mediana Vinted ${zl(d.market_median, d.currency)}` +
+      (d.market_discount != null ? ` · <span class="${cls}">${d.market_discount > 0 ? "−" : "+"}${pct(Math.abs(d.market_discount))}</span>` : "") +
+      `</div>`;
+  }
+  return `<a class="card" href="${esc(d.url)}" target="_blank" rel="noopener">
+    <div class="photo" style="background-image:url('${esc(d.photo || "")}')">
+      <span class="badge">−${pct(d.retail_discount)}</span><span class="score">${d.score.toFixed(0)} pkt</span>
+      ${d.suspicious ? '<span class="sus">⚠ podejrzanie tanio — sprawdź autentyczność</span>' : ""}
+    </div>
+    <div class="body">
+      <div class="model">${esc(d.model)}</div>
+      <div class="title" title="${esc(d.title)}">${esc(d.title)}</div>
+      <div class="price">${zl(d.total_price, d.currency)}<s>${zl(d.retail, d.currency)}</s></div>
+      ${market}
+      <div class="small">${esc(d.size || "?")} · ${esc(d.condition)} · ♥ ${d.favourites}</div>
+      <div class="small">${esc(d.seller)} · ${age(d.uploaded_at)}</div>
+    </div></a>`;
+}
+function setDeals(list, emptyText) {
+  deals = list;
+  fillSelect($("cat"), deals.map((d) => d.category));
+  fillSelect($("model"), deals.map((d) => d.model));
+  render(emptyText);
+}
+let lastEmptyText = "Brak okazji dla wybranych filtrów.";
+function render(emptyText) {
+  if (emptyText) lastEmptyText = emptyText;
+  const q = $("q").value.trim().toLowerCase(), cat = $("cat").value, model = $("model").value;
+  const minDisc = parseFloat($("disc").value), showSus = $("sus").checked;
+  const rows = deals.filter((d) =>
+    (!cat || d.category === cat) && (!model || d.model === model) && d.retail_discount >= minDisc &&
+    (showSus || !d.suspicious) && (!q || (d.title + " " + d.model).toLowerCase().includes(q))
+  ).sort(sorters[$("sort").value]);
+  $("grid").innerHTML = rows.length ? rows.map(card).join("") : `<div class="empty">${esc(lastEmptyText)}</div>`;
+}
+["q", "cat", "model", "disc", "sort", "sus"].forEach((id) => $(id).addEventListener("input", () => render()));
+
+// ─── raport statyczny ──────────────────────────────────────────────────────────
+if (BOOT.mode === "static") {
+  const m = BOOT.meta;
+  $("meta").textContent = `Wygenerowano ${new Date(m.generated_at).toLocaleString("pl-PL")} · ` +
+    `${BOOT.deals.length} okazji z ${m.listings_seen} przejrzanych ogłoszeń · ${m.scanned_items} modeli` +
+    (m.errors ? ` · błędy: ${m.errors}` : "");
+  setDeals(BOOT.deals);
+}
+
+// ─── tryb serve: wybór modeli i skan na żywo ─────────────────────────────────
+if (BOOT.mode === "app") {
+  $("scanner").hidden = false;
+  let catalog = null, selected = new Set(), polling = null;
+
+  async function api(path, body) {
+    const opts = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+    const res = await fetch(path, opts);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+  }
+
+  function saveSelection() { store.set("vs-selection", [...selected]); }
+  function updateCounts() {
+    for (const g of document.querySelectorAll(".group")) {
+      const names = catalog.items.filter((i) => i.category === g.dataset.category).map((i) => i.name);
+      const n = names.filter((x) => selected.has(x)).length;
+      g.querySelector(".count").textContent = `${n}/${names.length}`;
+      g.querySelector(".toggle").textContent = n === names.length ? "odznacz kategorię" : "zaznacz kategorię";
+    }
+    for (const chip of document.querySelectorAll(".chip")) chip.setAttribute("aria-pressed", selected.has(chip.dataset.name));
+    $("sel-count").textContent = `wybrane: ${selected.size} z ${catalog.items.length}`;
+    $("summary").textContent = selectionSummary() || "nic nie wybrano";
+    const perModel = (catalog.seconds_per_request || 2) * ($("o-market").checked ? 2 : 1);
+    const minutes = Math.ceil(selected.size * perModel / 60);
+    $("estimate").textContent = selected.size ? `${selected.size} modeli · ok. ${minutes} min` : "wybierz co najmniej jeden model";
+    $("scan").disabled = !selected.size || $("scan").dataset.running === "1";
+  }
+  function selectionSummary() {
+    // całe kategorie po nazwie, z częściowo wybranych pojedyncze modele (albo "x z y")
+    const parts = [];
+    for (const cat of new Set(catalog.items.map((i) => i.category))) {
+      const names = catalog.items.filter((i) => i.category === cat).map((i) => i.name);
+      const chosen = names.filter((n) => selected.has(n));
+      if (chosen.length === names.length) parts.push(cat);
+      else if (chosen.length > 3) parts.push(`${cat}: ${chosen.length} z ${names.length}`);
+      else parts.push(...chosen);
+    }
+    return parts.join(" + ");
+  }
+  function setCollapsed(collapsed) {
+    $("panel").classList.toggle("collapsed", collapsed);
+    $("collapse").textContent = collapsed ? "zmień wybór" : "zwiń";
+    store.set("vs-collapsed", collapsed);
+  }
+  $("collapse").onclick = () => setCollapsed(!$("panel").classList.contains("collapsed"));
+
+  function buildPicker() {
+    const categories = [...new Set(catalog.items.map((i) => i.category))];
+    $("groups").innerHTML = categories.map((cat) => `
+      <div class="group" data-category="${esc(cat)}">
+        <div class="group-head"><strong>${esc(cat)}</strong><span class="small count"></span>
+          <button type="button" class="link toggle"></button></div>
+        <div class="chips">${catalog.items.filter((i) => i.category === cat).map((i) =>
+          `<button type="button" class="chip" data-name="${esc(i.name)}" aria-pressed="false"
+             title="okazja do ${zl(i.max_price, catalog.currency)}">${esc(i.name)}<span class="r">${zl(i.retail, catalog.currency)}</span></button>`
+        ).join("")}</div>
+      </div>`).join("");
+    $("groups").addEventListener("click", (e) => {
+      const chip = e.target.closest(".chip");
+      if (chip) {
+        selected.has(chip.dataset.name) ? selected.delete(chip.dataset.name) : selected.add(chip.dataset.name);
+      } else if (e.target.classList.contains("toggle")) {
+        const cat = e.target.closest(".group").dataset.category;
+        const names = catalog.items.filter((i) => i.category === cat).map((i) => i.name);
+        const all = names.every((n) => selected.has(n));
+        names.forEach((n) => all ? selected.delete(n) : selected.add(n));
+      } else return;
+      saveSelection(); updateCounts();
+    });
+  }
+  $("sel-all").onclick = () => { catalog.items.forEach((i) => selected.add(i.name)); saveSelection(); updateCounts(); };
+  $("sel-none").onclick = () => { selected.clear(); saveSelection(); updateCounts(); };
+
+  const optionIds = ["o-sizes", "o-disc", "o-market", "o-sus"];
+  function loadOptions() {
+    const o = store.get("vs-options", {});
+    if (o.sizes != null) $("o-sizes").value = o.sizes;
+    if (o.disc != null) $("o-disc").value = o.disc;
+    if (o.market != null) $("o-market").checked = o.market;
+    if (o.sus != null) $("o-sus").checked = o.sus;
+  }
+  function saveOptions() {
+    store.set("vs-options", { sizes: $("o-sizes").value, disc: $("o-disc").value, market: $("o-market").checked, sus: $("o-sus").checked });
+    updateCounts();
+  }
+  optionIds.forEach((id) => $(id).addEventListener("change", saveOptions));
+
+  function showStatus(s) {
+    const running = s.running;
+    $("scan").dataset.running = running ? "1" : "";
+    $("scan").textContent = running ? "Skanuję…" : "Skanuj";
+    $("stop").hidden = !running;
+    $("progress").hidden = !s.total;
+    $("bar-fill").style.width = s.total ? `${Math.round(100 * s.done / s.total)}%` : "0";
+    const parts = [];
+    if (running) parts.push(`${s.done}/${s.total}` + (s.current ? ` · teraz: ${s.current}` : ""));
+    else if (s.finished_at) parts.push(`zakończono ${new Date(s.finished_at).toLocaleTimeString("pl-PL")} · ${s.done}/${s.total} modeli`);
+    if (s.total) parts.push(`${s.deals.length} okazji z ${s.listings_seen} ogłoszeń`);
+    if (s.funnel) parts.push(`odpadło: ${s.funnel}`);
+    $("progress-text").textContent = parts.join(" · ");
+    $("scan-errors").textContent = Object.entries(s.errors || {}).map(([k, v]) => `${k}: ${v}`).join("\n");
+    $("meta").textContent = s.finished_at || running ? "" : "Wybierz modele i kliknij „Skanuj”. Wyniki pojawiają się na bieżąco.";
+    const empty = running ? "Szukam… okazje pojawią się tutaj." : s.total ? "Brak okazji dla wybranych filtrów." : "Jeszcze nic nie skanowano.";
+    setDeals(s.deals, empty);
+    updateCounts();
+  }
+  async function poll() {
+    try {
+      const s = await api("/api/status");
+      showStatus(s);
+      if (!s.running) { clearInterval(polling); polling = null; }
+    } catch (e) {
+      $("scan-errors").textContent = "Brak połączenia z serwerem — czy vinted-screener serve nadal działa?";
+    }
+  }
+  function startPolling() { if (!polling) polling = setInterval(poll, 1000); }
+
+  $("scan").onclick = async () => {
+    const sizes = $("o-sizes").value.replace(/,\s/g, " ").split(/[\s;]+/).filter(Boolean);
+    try {
+      await api("/api/scan", {
+        items: catalog.items.map((i) => i.name).filter((n) => selected.has(n)),
+        sizes, min_discount: $("o-disc").value === "" ? null : Number($("o-disc").value),
+        use_market: $("o-market").checked, show_suspicious: $("o-sus").checked,
+      });
+      if ($("o-sus").checked) $("sus").checked = true;
+      setCollapsed(true);
+      await poll(); startPolling();
+    } catch (e) { $("scan-errors").textContent = e.message; }
+  };
+  $("stop").onclick = () => api("/api/stop", {}).catch((e) => { $("scan-errors").textContent = e.message; });
+
+  (async () => {
+    try {
+      catalog = await api("/api/watchlist");
+    } catch (e) {
+      $("meta").textContent = "Nie udało się wczytać watchlisty: " + e.message;
+      return;
+    }
+    const known = new Set(catalog.items.map((i) => i.name));
+    const saved = store.get("vs-selection", null);
+    selected = new Set(saved ? saved.filter((n) => known.has(n)) : catalog.items.map((i) => i.name));
+    buildPicker(); loadOptions(); updateCounts();
+    setCollapsed(store.get("vs-collapsed", false));
+    await poll();
+    if ($("scan").dataset.running === "1") startPolling();
+  })();
+}
+</script>
+</body>
+</html>

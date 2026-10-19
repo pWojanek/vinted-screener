@@ -4,12 +4,13 @@ Screener okazji na Vinted. Bierze listę fajnych modeli z cenami retail (`watchl
 przegląda najnowsze ogłoszenia i pokazuje tylko te wystawione **dużo poniżej ceny sklepowej**.
 Domyślny próg to co najmniej 50% taniej, a stan nowy z metką, nowy albo bardzo dobry.
 
-Na start watchlista ma 37 modeli: Dunki, Jordany, Samby, New Balance, Salomony, Nuptse,
-Arc'teryx, Patagonię, Carhartt WIP, Barboura, Stone Island i inne.
+Na start watchlista ma 47 modeli w 7 kategoriach: sneakersy (Dunki, Jordany, Samby, New Balance,
+Salomony…), buty, kurtki (Nuptse, Arc'teryx, Barbour…), bluzy i swetry (Carhartt WIP, Stüssy,
+Ralph Lauren, Stone Island, C.P. Company, Tech Fleece…), koszulki polo, spodnie i akcesoria.
 
 ## Co robi z każdym ogłoszeniem
 
-1. **Szuka** na Vinted (`/api/v2/catalog/items`, od najnowszych) w oknie cenowym
+1. **Szuka** na Vinted (`api.vinted.pl/svc-catalogue/items`, od najnowszych) w oknie cenowym
    od „podejrzanie tanio” do „retail − próg rabatu”.
 2. **Dopasowuje** ogłoszenie do modelu. Marka musi się zgadzać, a tytuł musi zawierać wymagane
    frazy (np. `dunk` + `low`, bez `high`). To odsiewa „Inna marka”, wersje „a'la” i inne modele.
@@ -34,6 +35,19 @@ pip install -e .
 Jedyna zależność to `curl_cffi`. Podszywa się pod Chrome, bo zwykłe `requests` Vinted często blokuje.
 
 ## Użycie
+
+### Strona w przeglądarce (najwygodniej)
+
+```bash
+python -m vinted_screener serve
+```
+
+Otwiera się strona `http://127.0.0.1:8765`. Klikasz modele albo całe kategorie, które chcesz
+skanować, ustawiasz rozmiary i minimalny rabat, a potem klikasz **Skanuj**. Okazje pojawiają
+się na bieżąco, a kliknięcie karty otwiera ogłoszenie na Vinted. Strona zapamiętuje Twój wybór.
+Serwer działa tylko lokalnie i kończysz go przez Ctrl+C w terminalu.
+
+### Terminal
 
 ```bash
 vinted-screener list                         # modele z watchlisty i progi cenowe

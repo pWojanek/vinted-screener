@@ -58,6 +58,10 @@ class Settings:
     delay: float = 1.5
     market_ttl_hours: float = 12.0
 
+    @property
+    def site_url(self) -> str:
+        return "https://www." + self.domain.removeprefix("www.")
+
 
 @dataclass(frozen=True)
 class WatchItem:

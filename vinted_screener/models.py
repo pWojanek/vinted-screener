@@ -98,7 +98,8 @@ class Listing:
     uploaded_at: datetime | None
 
     @classmethod
-    def from_api(cls, raw: dict[str, Any]) -> Listing | None:
+    def from_api(cls, raw: dict[str, Any], site_url: str = "https://www.vinted.pl") -> Listing | None:
+        """Link budowany z ID (`/items/<id>` przekierowuje na ogłoszenie) — pole `url` z API bywa mylące."""
         price, currency = _money(raw.get("price"))
         if price is None or raw.get("id") is None:
             return None
@@ -125,7 +126,7 @@ class Listing:
             price=price,
             total_price=total,
             currency=currency,
-            url=raw.get("url") or "",
+            url=f"{site_url}/items/{int(raw['id'])}",
             photo_url=photo.get("url"),
             seller=(raw.get("user") or {}).get("login") or "",
             favourites=int(raw.get("favourite_count") or 0),

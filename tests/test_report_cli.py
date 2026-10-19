@@ -34,7 +34,8 @@ def test_html_report_embeds_data_safely(tmp_path):
     write_html([make_deal(title="Dunk </script><b>x")], path, {"generated_at": "2026-10-19T12:00:00+00:00"})
     page = path.read_text()
     assert "</script><b>" not in page
-    data = json.loads(page.split("const DATA = ", 1)[1].split(";\n", 1)[0].replace("<\\/", "</"))
+    data = json.loads(page.split("const BOOT = ", 1)[1].split(";\n", 1)[0].replace("<\\/", "</"))
+    assert data["mode"] == "static"
     assert data["deals"][0]["title"] == "Dunk </script><b>x"
     assert data["deals"][0]["retail_discount"] == 0.68
 

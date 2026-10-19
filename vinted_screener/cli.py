@@ -1,4 +1,4 @@
-"""Interfejs wiersza poleceń: scan / watch / list."""
+"""Interfejs wiersza poleceń: serve / scan / watch / list."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import os
 import random
 import sys
 import time
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from vinted_screener.models import normalize
 from vinted_screener.notify import send_discord
 from vinted_screener.report import SORT_KEYS, enable_windows_ansi, money, print_deals, sort_deals, write_html, write_json
 from vinted_screener.screener import Filters, ScanResult, Screener, describe_funnel
+from vinted_screener.server import ScanService, serve
 from vinted_screener.state import State
 from vinted_screener.watchlist import Settings, WatchItem, WatchlistError, load_watchlist
 
@@ -59,6 +61,13 @@ def build_parser() -> argparse.ArgumentParser:
     watch.add_argument("--webhook", default=os.environ.get("VINTED_DISCORD_WEBHOOK"), help="URL webhooka Discorda (lub zmienna VINTED_DISCORD_WEBHOOK)")
     watch.add_argument("--notify-existing", action="store_true", help="przy pierwszym skanie wyślij też okazje, które już wiszą")
     sub.add_parser("list", parents=[common], help="pokaż modele z watchlisty i progi cenowe")
+    serve = sub.add_parser("serve", parents=[common], help="strona w przeglądarce: wybierz, co skanować, i oglądaj wyniki na żywo")
+    serve.add_argument("--port", type=int, default=8765, help="port lokalnego serwera (domyślnie: %(default)s)")
+    serve.add_argument("--no-browser", action="store_true", help="nie otwieraj przeglądarki automatycznie")
+    serve.add_argument("--html", default="okazje.html", metavar="PLIK", help="po każdym skanie zapisz też raport statyczny (pusty = nie)")
+    serve.add_argument("--state", default=".vinted-screener/state.json", metavar="PLIK", help="plik stanu (cache median)")
+    serve.add_argument("-q", "--quiet", action="store_true", help="bez postępu w terminalu")
+    serve.add_argument("--debug", action="store_true", help="wypisuj zapytania do Vinted i początek odpowiedzi")
     return parser
 
 
@@ -83,6 +92,12 @@ def cmd_list(settings: Settings, items: list[WatchItem]) -> int:
     return 0
 
 
+def _loggers(args: argparse.Namespace) -> tuple[Callable[[str], None], Callable[[str], None] | None]:
+    log = (lambda msg: None) if args.quiet else (lambda msg: print(msg, file=sys.stderr, flush=True))
+    debug = (lambda msg: print(f"  [debug] {msg}", file=sys.stderr, flush=True)) if args.debug else None
+    return log, debug
+
+
 def _make_screener(args: argparse.Namespace, settings: Settings, state: State) -> Screener:
     if args.pages:
         settings = dataclasses.replace(settings, pages=args.pages)
@@ -93,8 +108,7 @@ def _make_screener(args: argparse.Namespace, settings: Settings, state: State) -
         sizes=tuple(args.size),
         show_suspicious=args.show_suspicious,
     )
-    log = (lambda msg: None) if args.quiet else (lambda msg: print(msg, file=sys.stderr, flush=True))
-    debug = (lambda msg: print(f"  [debug] {msg}", file=sys.stderr, flush=True)) if args.debug else None
+    log, debug = _loggers(args)
     client = VintedClient(domain=settings.domain, delay=settings.delay, debug=debug)
     return Screener(client, settings, filters=filters, state=state, use_market=not args.no_market, log=log, debug=debug)
 
@@ -173,6 +187,18 @@ def cmd_watch(args: argparse.Namespace, settings: Settings, items: list[WatchIte
         return 0
 
 
+def cmd_serve(args: argparse.Namespace, settings: Settings, items: list[WatchItem]) -> int:
+    log, debug = _loggers(args)
+    client = VintedClient(domain=settings.domain, delay=settings.delay, debug=debug)
+    service = ScanService(settings, items, client, State(args.state), html_path=args.html or None, log=log, debug=debug)
+    try:
+        serve(service, port=args.port, open_browser=not args.no_browser)
+    except OSError as exc:
+        print(f"nie udało się uruchomić serwera na porcie {args.port}: {exc} (spróbuj --port 8766)", file=sys.stderr)
+        return 1
+    return 0
+
+
 def _prepare_console() -> None:
     # Konsola Windows bez tego pokazuje kody kolorów jako śmieci, a przekierowane wyjście
     # w cp1250 wywala się na znakach typu ♥/⚠.
@@ -199,4 +225,6 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_list(settings, items)
     if args.command == "scan":
         return cmd_scan(args, settings, items)
+    if args.command == "serve":
+        return cmd_serve(args, settings, items)
     return cmd_watch(args, settings, items)

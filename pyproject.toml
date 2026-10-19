@@ -21,5 +21,8 @@ vinted-screener = "vinted_screener.cli:main"
 [tool.setuptools]
 packages = ["vinted_screener"]
 
+[tool.setuptools.package-data]
+vinted_screener = ["page.html"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

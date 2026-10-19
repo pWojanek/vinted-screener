@@ -1,12 +1,12 @@
 # vinted-screener
 
-Screener okazji na Vinted (Python 3.11+, CLI). Szczegóły modułów są w `architecture.md`, a użycie w `README.md`.
+Screener okazji na Vinted (Python 3.11+, CLI + lokalna strona `serve`). Szczegóły modułów są w `architecture.md`, a użycie w `README.md`.
 
 ## Komendy
 
 - Instalacja: `pip install -e '.[dev]'`
 - Testy: `pytest` (bez sieci, klient Vinted jest podmieniany)
-- Uruchomienie: `python -m vinted_screener scan` / `watch` / `list`
+- Uruchomienie: `python -m vinted_screener serve` (strona z wyborem modeli) / `scan` / `watch` / `list`
 
 ## Konwencje
 
