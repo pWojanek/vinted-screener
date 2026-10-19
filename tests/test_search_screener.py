@@ -341,3 +341,47 @@ def test_every_bundled_brand_is_recognised_in_a_phrase():
     assert Search.parse("kurtka puchowa", brands).brands == ()
     for text in TYPE_SUGGESTIONS:
         assert Search.parse(text, brands).brands == (), f"{text}: zwykłe słowa nie mogą udawać marek"
+
+
+class FakeShops:
+    """Udaje ShopPrices: ceny z gotowego słownika (klucz = nazwa produktu)."""
+
+    def __init__(self, prices=None, disabled=None):
+        self.prices = prices or {}
+        self.lookups = 0
+        self.asked: list[tuple[str, str]] = []
+        self.disabled = disabled or {}
+
+    def price_for(self, brand, name, tokens):
+        self.lookups += 1
+        self.asked.append((brand.name, name))
+        return self.prices.get(name)
+
+
+def shop_price(price, label="nike.com"):
+    return RetailPrice(price, RetailSource(kind="shop", label=label, url="https://www.nike.com/pl/t/x", product="Nike Dunk Low Retro",
+                                           note="cena regularna, teraz w promocji"))
+
+
+def test_shop_regular_price_goes_before_ceneo_and_ceneo_fills_the_rest():
+    vinted = FakeVinted([raw_item("Nike Dunk Low Retro Panda", 150, id=1), raw_item("Nike Air Max 90", 150, id=2)])
+    shops = FakeShops({"Nike Dunk Low Retro": shop_price(499)})
+    ceneo = FakeCeneo({"Nike Dunk Low Retro": ceneo_price(429), "Nike Air Max 90": ceneo_price(599, "Nike Air Max 90")})
+    screener = SearchScreener(vinted, SETTINGS, None, ceneo=ceneo, shops=shops)
+    deals, _ = screener.screen_search(NIKE_SEARCH)
+    by_id = {d.listing.id: d for d in deals}
+    assert by_id[1].retail == 499 and by_id[1].retail_source.kind == "shop"
+    assert by_id[2].retail == 599 and by_id[2].retail_source.kind == "ceneo"
+    assert shops.asked == [("Nike", "Nike Air Max 90"), ("Nike", "Nike Dunk Low Retro")]
+    assert [name for name, _ in ceneo.asked] == ["Nike Air Max 90"], "Dunk ma już cenę ze sklepu"
+    assert screener.lookups == {"sklepy": 2, "ceneo": 1}
+
+
+def test_shop_lookups_are_capped_and_blocked_shops_are_reported():
+    import dataclasses
+    settings = dataclasses.replace(SETTINGS, max_shop_per_search=1)
+    vinted = FakeVinted([raw_item("Nike Air Max 90", 150, id=1), raw_item("Nike Dunk Low", 150, id=2)])
+    shops = FakeShops(disabled={"Zalando": "Zalando blokuje zapytania (HTTP 403)"})
+    result = SearchScreener(vinted, settings, None, shops=shops).screen([NIKE_SEARCH])
+    assert len(shops.asked) == 1
+    assert result.errors["Zalando"].startswith("Zalando blokuje") and result.lookups["sklepy"] == 1

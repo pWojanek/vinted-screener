@@ -19,6 +19,7 @@ from vinted_screener.report import deal_to_dict, render_page, sort_deals, write_
 from vinted_screener.retail import MODEL, RetailFinder
 from vinted_screener.screener import Filters, ScanResult, describe_funnel
 from vinted_screener.search_screener import MAX_SEARCH_LENGTH, TYPE_SUGGESTIONS, Search, SearchScreener, parse_searches
+from vinted_screener.shops import ShopClient, ShopPrices
 from vinted_screener.state import State
 from vinted_screener.watchlist import Brand, Settings, WatchItem
 
@@ -27,7 +28,7 @@ ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
 MAX_SEARCHES = 10
 MAX_AI_COST = 50.0  # górna granica limitu z formularza, w USD
 # orientacyjny czas na frazę przy pierwszym skanie (potem krócej, bo ceny są zapamiętane):
-# strony z Vinted + Ceneo + opisy, a z AI dodatkowo rozpoznanie i wyszukiwanie cen
+# strony z Vinted + sklepy + Ceneo + opisy, a z AI dodatkowo rozpoznanie i wyszukiwanie cen
 SECONDS_PER_SEARCH_AI, SECONDS_PER_SEARCH_PLAIN = 100, 60
 
 
@@ -42,6 +43,7 @@ class ScanService:
         state: State,
         ai_client: Any = None,
         ceneo_client: CeneoClient | None = None,
+        shop_clients: list[ShopClient] = (),
         watch_items: list[WatchItem] = (),
         html_path: str | None = None,
         log: Callable[[str], None] = lambda msg: None,
@@ -53,6 +55,7 @@ class ScanService:
         self.state = state
         self.ai_client = ai_client
         self.ceneo_client = ceneo_client
+        self.shop_clients = list(shop_clients)
         self.watch_items = list(watch_items)
         self.html_path = html_path
         self.log = log
@@ -78,6 +81,8 @@ class ScanService:
             "ai_model": MODEL if ai else None,
             "max_ai_cost": self.settings.max_ai_cost,
             "min_discount": round(self.settings.min_discount * 100),
+            "shops": [c.shop.name for c in self.shop_clients],
+            "shops_default": self.settings.shops,
             "ceneo_available": self.ceneo_client is not None,
             "ceneo_default": self.settings.ceneo,
             "seller_default": self.settings.seller_prices,
@@ -115,6 +120,7 @@ class ScanService:
             show_suspicious=bool(request.get("show_suspicious")),
         )
         sources = {
+            "shops": bool(request.get("shops", self.settings.shops)) and bool(self.shop_clients),
             "ceneo": bool(request.get("ceneo", self.settings.ceneo)) and self.ceneo_client is not None,
             "seller": bool(request.get("seller", self.settings.seller_prices)),
         }
@@ -154,9 +160,10 @@ class ScanService:
     def _run(self, searches: list[Search], filters: Filters, max_cost: float, sources: dict[str, bool]) -> None:
         finder = RetailFinder(self.ai_client, self.state, max_usd=max_cost, debug=self.debug) if self.ai_client else None
         ceneo = CeneoPrices(self.ceneo_client, self.state, debug=self.debug) if sources["ceneo"] else None
+        shops = ShopPrices(self.shop_clients, self.state, debug=self.debug) if sources["shops"] else None
         screener = SearchScreener(
             self.client, self.settings, finder, self.watch_items, filters=filters, log=self.log, debug=self.debug,
-            ceneo=ceneo, read_descriptions=sources["seller"], state=self.state, known_brands=self.brands,
+            ceneo=ceneo, read_descriptions=sources["seller"], state=self.state, known_brands=self.brands, shops=shops,
         )
 
         def on_search(i: int, search: Search, result: ScanResult) -> None:

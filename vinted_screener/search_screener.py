@@ -3,11 +3,12 @@ każdego ogłoszenia screener bierze z najlepszego dostępnego źródła.
 
 Kolejność źródeł (każda okazja pokazuje, które zadziałało):
 1. AI z wyszukiwarką — cena ze sklepu z linkiem (opcjonalnie, płatne),
-2. Ceneo — najniższa cena nowego produktu w sklepach,
-3. watchlista — ręczna, orientacyjna cena modelu,
-4. opis sprzedającego — "cena w sklepie 499 zł",
-5. AI bez potwierdzenia — szacunek,
-6. mediana podobnych ofert na Vinted — gdy nic innego nie ma (to cena rynkowa, nie retail).
+2. sklepy z [[shop]] — cena regularna z oficjalnego sklepu marki albo z Zalando,
+3. Ceneo — najniższa cena nowego produktu w sklepach,
+4. watchlista — ręczna, orientacyjna cena modelu,
+5. opis sprzedającego — "cena w sklepie 499 zł",
+6. AI bez potwierdzenia — szacunek,
+7. mediana podobnych ofert na Vinted — gdy nic innego nie ma (to cena rynkowa, nie retail).
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from vinted_screener.client import VintedClient
 from vinted_screener.models import Deal, Listing, RetailPrice, RetailSource, condition_status_id, normalize
 from vinted_screener.products import declared_retail, guess_category, is_specific, product_name, product_tokens
 from vinted_screener.retail import RetailAIError, RetailFinder
+from vinted_screener.shops import ShopPrices
 from vinted_screener.screener import Filters, ItemCallback, ScanResult, deal_score, describe_funnel, parse_listings, run_scan
 from vinted_screener.state import State
 from vinted_screener.watchlist import Brand, Settings, WatchItem, globally_excluded, size_matches
@@ -174,6 +176,7 @@ class SearchScreener:
         read_descriptions: bool = False,
         state: State | None = None,
         known_brands: Sequence[Brand] = (),
+        shops: ShopPrices | None = None,
     ) -> None:
         self.client = client
         self.settings = settings
@@ -184,10 +187,12 @@ class SearchScreener:
         self.log = log
         self.debug = debug or (lambda msg: None)
         self.ceneo = ceneo
+        self.shops = shops
         self.read_descriptions = read_descriptions
         self.state = state or State()  # tu pamiętamy ceny z opisów, żeby nie pobierać ich co skan
         self.known_brands = list(known_brands)
         self._other_brands: dict[str, Brand] = {}
+        self._reported: set[str] = set()  # wyłączone źródła, o których już napisaliśmy
         self.ai_error: str | None = None
         self.lookups: Counter[str] = Counter()
 
@@ -299,23 +304,31 @@ class SearchScreener:
             normalize(name): price for (name, brand, _) in requests if (price := found.get(RetailFinder.cache_key(name, brand)))
         }
 
-    def _ceneo_prices(self, by_key: dict[str, list[_Product]], have: set[str]) -> dict[str, RetailPrice]:
-        if not self.ceneo:
+    def _store_prices(
+        self,
+        source: CeneoPrices | ShopPrices | None,
+        by_key: dict[str, list[_Product]],
+        have: set[str],
+        cap: int,
+        ask: Callable[[_Product], RetailPrice | None],
+        counter: str,
+    ) -> dict[str, RetailPrice]:
+        """Ceny ze sklepów albo Ceneo dla produktów bez ceny, najwyżej `cap` nowych zapytań na frazę."""
+        if not source:
             return {}
         # najpierw modele z watchlisty, potem produkty z największą liczbą ofert
         order = sorted(
             (k for k, m in by_key.items() if k not in have and m[0].specific and self._could_be_deal(m)),
             key=lambda k: (by_key[k][0].watch_item is None, -len(by_key[k]), k),
         )
-        start = self.ceneo.lookups
+        start = source.lookups
         prices = {}
         for key in order:
-            if self.ceneo.lookups - start >= self.settings.max_ceneo_per_search:
+            if source.lookups - start >= cap:
                 break
-            first = by_key[key][0]
-            if price := self.ceneo.price_for(first.name, first.tokens[:3]):
+            if price := ask(by_key[key][0]):
                 prices[key] = price
-        self.lookups["ceneo"] += self.ceneo.lookups - start
+        self.lookups[counter] += source.lookups - start
         return prices
 
     def _seller_prices(self, products: list[_Product], have: set[str]) -> dict[int, RetailPrice]:
@@ -353,13 +366,17 @@ class SearchScreener:
     # ─── 3. okazje ───────────────────────────────────────────────────────────────
 
     def _reference(
-        self, p: _Product, ai: dict[str, RetailPrice], ceneo: dict[str, RetailPrice], seller: dict[int, RetailPrice]
+        self,
+        p: _Product,
+        ai: dict[str, RetailPrice],
+        stores: dict[str, RetailPrice],
+        seller: dict[int, RetailPrice],
     ) -> RetailPrice | None:
         ai_price = ai.get(p.key)
         if ai_price and ai_price.source.kind == "web":
             return ai_price
-        if p.key in ceneo:
-            return ceneo[p.key]
+        if p.key in stores:  # sklep, a gdy go nie ma — Ceneo
+            return stores[p.key]
         if p.watch_item:
             source = RetailSource(kind="watchlist", label="watchlista (orientacyjnie)", product=p.watch_item.name)
             return RetailPrice(p.watch_item.retail, source)
@@ -404,13 +421,21 @@ class SearchScreener:
             by_key.setdefault(p.key, []).append(p)
         ai = self._ai_prices(by_key)
         have = {k for k, v in ai.items() if v.source.kind == "web"}
-        ceneo = self._ceneo_prices(by_key, have)
+        shops = self._store_prices(
+            self.shops, by_key, have, self.settings.max_shop_per_search,
+            lambda p: self.shops.price_for(p.brand, p.name, p.tokens[:3]), "sklepy",
+        )
+        have |= set(shops)
+        ceneo = self._store_prices(
+            self.ceneo, by_key, have, self.settings.max_ceneo_per_search,
+            lambda p: self.ceneo.price_for(p.name, p.tokens[:3]), "ceneo",
+        )
         have |= set(ceneo)
         seller = self._seller_prices(products, have)
 
         deals = []
         for p in products:
-            ref = self._reference(p, ai, ceneo, seller)
+            ref = self._reference(p, ai, {**ceneo, **shops}, seller)
             if ref is None:
                 funnel["noref"] += 1
                 continue
@@ -445,11 +470,13 @@ class SearchScreener:
                     suspicious=suspicious,
                 )
             )
-        if self.ceneo and self.ceneo.disabled_reason:
-            self.log(f"    Ceneo wyłączone: {self.ceneo.disabled_reason}")
+        for name, reason in self._source_errors().items():
+            if name not in self._reported:
+                self._reported.add(name)
+                self.log(f"    {name} wyłączone: {reason}")
         self.debug(
             f"{search.name} (Vinted: {search.query!r}, {search.scope}): "
-            f"pobrano {len(raw)}, produktów {len(by_key)}, ceny: AI {len(ai)}, Ceneo {len(ceneo)}, "
+            f"pobrano {len(raw)}, produktów {len(by_key)}, ceny: AI {len(ai)}, sklepy {len(shops)}, Ceneo {len(ceneo)}, "
             f"opisy {len(seller)}; okazji {len(deals)}; odpadło: {describe_funnel(funnel) or '—'}"
         )
         return deals, funnel
@@ -476,5 +503,11 @@ class SearchScreener:
         result.lookups = Counter(self.lookups)
         if self.ai_error:
             result.errors["AI"] = self.ai_error
+        result.errors.update(self._source_errors())
+
+    def _source_errors(self) -> dict[str, str]:
+        """Źródła cen wyłączone w tym skanie, bo blokują zapytania."""
+        errors = dict(self.shops.disabled) if self.shops else {}
         if self.ceneo and self.ceneo.disabled_reason:
-            result.errors["Ceneo"] = self.ceneo.disabled_reason
+            errors["Ceneo"] = self.ceneo.disabled_reason
+        return errors

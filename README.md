@@ -35,19 +35,40 @@ czy XT-6 zostają. Potem bierze pierwsze dostępne źródło ceny, w tej kolejno
 | Źródło | Etykieta na karcie | Uwagi |
 |---|---|---|
 | AI z wyszukiwarką (opcjonalne) | „retail wg nike.com ↗” | Cena regularna ze sklepu. Link sprawdzony w wynikach wyszukiwania. |
-| **Ceneo.pl** | „wg Ceneo ↗ · najniższa cena w sklepach” | Najtańsza oferta nowego produktu. Przyjmowana tylko, gdy nazwa na Ceneo zawiera wszystkie słowa modelu. |
+| **Sklepy: oficjalny sklep marki, potem Zalando** | „retail wg nike.com ↗ · cena regularna, teraz w promocji” | Cena regularna, czyli sprzed promocji. Najpierw pytany jest oficjalny sklep marki (nike.com, adidas.pl), a gdy go nie ma albo nic nie znajdzie, Zalando. Lista sklepów jest w `watchlist.toml` (`[[shop]]`). |
+| **Ceneo.pl** | „wg Ceneo ↗ · najniższa cena w sklepach” | Gdy sklepy nic nie znalazły. Najtańsza oferta nowego produktu. Przyjmowana tylko, gdy nazwa na Ceneo zawiera wszystkie słowa modelu. |
 | Watchlista | „retail wg watchlisty (orientacyjnie)” | Ręczne ceny z `watchlist.toml`. |
 | **Opis sprzedającego** | „wg sprzedającego: „Cena w sklepie 349 zł”” | Cytat z opisu ogłoszenia. Działa także dla ogólnych tytułów typu „Bluza Nike”. |
 | Szacunek AI (opcjonalny) | „⚠ retail to szacunek AI” | Gdy AI rozpoznało produkt, ale nie znalazło ceny. |
 | **Mediana Vinted** | „⚠ brak ceny retail — porównanie z: mediana Vinted (7 ofert)” | Ostatnia deska ratunku, gdy jest min. 6 podobnych ofert. To cena rynkowa, nie sklepowa. |
 
 Pomarańczowe etykiety oznaczają cenę przybliżoną. W wynikach jest filtr **„Źródło ceny”**:
-„ze sklepów (Ceneo, AI)” albo „bez szacunków i median”.
+„ze sklepów (sklepy, Ceneo, AI)” albo „bez szacunków i median”.
 
-Żeby nie zasypać serwisów zapytaniami, Ceneo dostaje najwyżej 25 nowych zapytań na frazę, a opisów
-pobiera się najwyżej 10 na frazę. W pierwszej kolejności idą nowe rzeczy i te najtańsze względem
-podobnych. Wyniki są pamiętane w `.vinted-screener/state.json`: Ceneo 7 dni, opisy 14 dni. Kolejne skany
-są więc szybsze i obejmują więcej produktów.
+**Jak screener czyta sklepy.** Wpisuje nazwę produktu w wyszukiwarkę sklepu i czyta dane produktów zapisane
+w stronie wyników (nazwa, cena regularna, cena promocyjna, link). Bierze produkt, którego nazwa zawiera
+wszystkie słowa modelu. Gdy pasuje kilka, bierze najniższą cenę regularną, bo różne kolorystyki kosztują
+różnie, a niższa cena nie zawyży rabatu. Rzeczy dziecięce odpadają. Słowo kolorystyki z Vinted
+(„Dunk Low Panda”) może zostać pominięte, a numer modelu („Air Max 90”) nie.
+
+**Własny sklep.** W `watchlist.toml` dopisz sekcję `[[shop]]`. Wyszukaj coś w sklepie, skopiuj adres
+z paska przeglądarki i w miejsce wpisanej frazy wstaw `{q}`. Dla oficjalnego sklepu podaj też `brands`.
+Przykład z wymyślonym adresem:
+
+```toml
+[[shop]]
+name = "sklep-marki.pl"
+search_url = "https://www.sklep-marki.pl/szukaj?q={q}"   # tu adres skopiowany z przeglądarki
+brands = ["Carhartt WIP"]
+```
+
+Czy sklep działa, sprawdzisz komendą `scan --search "carhartt wip detroit" --debug`. Pokaże, ile produktów
+odczytano. Jeśli sklep nie zapisuje danych produktów w stronie, wyjdzie 0 i trzeba go usunąć.
+
+Żeby nie zasypać serwisów zapytaniami, sklepy dostają razem najwyżej 25 nowych zapytań na frazę, Ceneo też
+25, a opisów pobiera się najwyżej 10 na frazę. W pierwszej kolejności idą nowe rzeczy i te najtańsze
+względem podobnych. Wyniki są pamiętane w `.vinted-screener/state.json`: sklepy i Ceneo 7 dni, opisy
+14 dni. Kolejne skany są więc szybsze i obejmują więcej produktów.
 
 Rabat liczony jest od pełnej ceny dla kupującego (cena + ochrona kupujących, bez wysyłki). Wynik 0–100
 łączy rabat od ceny odniesienia (65%) i rabat względem mediany podobnych ofert na Vinted (35%),
@@ -64,12 +85,12 @@ python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\act
 pip install -e .
 ```
 
-Zależności to `curl_cffi` (udaje Chrome, bo zwykłe `requests` Vinted i Ceneo blokują)
+Zależności to `curl_cffi` (udaje Chrome, bo zwykłe `requests` Vinted, sklepy i Ceneo blokują)
 i `anthropic` (używany tylko, gdy ustawisz klucz API).
 
 ### Klucz API (opcjonalnie)
 
-Bez klucza wszystko działa za darmo na Ceneo, opisach sprzedających, watchliście i medianie Vinted.
+Bez klucza wszystko działa za darmo na sklepach, Ceneo, opisach sprzedających, watchliście i medianie Vinted.
 Z kluczem API Anthropic dochodzi AI. Rozpoznaje produkty także z nietypowych tytułów i szuka ceny
 regularnej w oficjalnych sklepach. Klucz utworzysz na https://console.anthropic.com (Settings → API Keys),
 a płaci się za użycie.
@@ -105,13 +126,13 @@ python -m vinted_screener serve
 Otwiera się strona `http://127.0.0.1:8765`.
 
 1. Wpisujesz, czego szukasz, np. „Nike bluza” albo „kurtka puchowa, Carhartt WIP”.
-2. Opcjonalnie ustawiasz rozmiary, rabat, źródła cen (Ceneo, opisy sprzedających, limit kosztu AI)
+2. Opcjonalnie ustawiasz rozmiary, rabat, źródła cen (sklepy, Ceneo, opisy sprzedających, limit kosztu AI)
    i to, czy przy samym typie rzeczy brać tylko znane marki.
 3. Klikasz **Szukaj okazji** albo wciskasz Enter.
 
 Okazje pojawiają się na bieżąco, a kliknięcie karty otwiera ogłoszenie na Vinted. Pole „Filtruj wyniki”
 nad kartami zawęża już znalezione okazje i nie wysyła nowych zapytań. Pierwszy skan jednej frazy trwa
-ok. 1–2 minuty (zapytania do Ceneo i opisy), kolejne są szybsze dzięki pamięci. Strona zapamiętuje
+ok. 1–2 minuty (zapytania do sklepów, Ceneo i opisy), kolejne są szybsze dzięki pamięci. Strona zapamiętuje
 ostatnie frazy i opcje. Serwer działa tylko lokalnie i kończysz go przez Ctrl+C w terminalu.
 
 ### Terminal
@@ -120,13 +141,14 @@ ostatnie frazy i opcje. Serwer działa tylko lokalnie i kończysz go przez Ctrl+
 vinted-screener scan --search "nike bluza" --search "carhartt wip"   # wyszukiwarka → terminal + okazje.html
 vinted-screener scan --search "kurtka puchowa" --size L               # sam typ rzeczy, znane marki
 vinted-screener scan --search "sukienka" --any-brand                  # sam typ rzeczy, każda marka
-vinted-screener scan --search nike --no-seller --debug     # bez opisów; pokaż zapytania do Vinted i Ceneo
+vinted-screener scan --search nike --no-seller --debug     # bez opisów; pokaż zapytania do Vinted, sklepów i Ceneo
+vinted-screener scan --search nike --no-shops --no-ceneo   # bez sklepów i Ceneo (opisy, watchlista, mediana)
 vinted-screener scan --search "ralph lauren sweter" --max-ai-cost 1
 vinted-screener scan                         # tryb modeli z watchlisty (bez AI)
 vinted-screener scan --size 43 --size L      # tylko Twoje rozmiary
 vinted-screener scan --category kurtki --min-discount 60
 vinted-screener watch --search "nike bluza" --interval 15   # co ~15 min, wypisuje tylko NOWE okazje
-vinted-screener list                         # modele z watchlisty i znane marki
+vinted-screener list                         # modele z watchlisty, znane marki i sklepy
 ```
 
 Na Windowsie z Pythonem ze Sklepu Microsoft komenda `vinted-screener` często nie jest w PATH,
@@ -151,7 +173,9 @@ Wszystko jest w `watchlist.toml`, a każde pole ma opis w komentarzach. Znane ma
 rozpoznaje we frazie i podpowiada, to sekcje `[[brand]]`. Inne nazwy marki dopisujesz w `aliases`
 (np. The North Face → „North Face”, „TNF”). Dla krótkich nazw ustaw `query` (np. On → `on running`),
 a dla marek często podrabianych wyższy `suspicious_below`. Modele z cenami to sekcje `[[item]]`.
-W `[settings]` ustawisz próg rabatu, stany, liczbę stron na frazę (`search_pages`) i limit kosztu AI.
+Sklepy z cenami regularnymi to sekcje `[[shop]]` (opis wyżej, w „Skąd jest cena”).
+W `[settings]` ustawisz próg rabatu, stany, liczbę stron na frazę (`search_pages`), limity zapytań do sklepów
+i Ceneo oraz limit kosztu AI.
 
 ## Ograniczenia
 
@@ -160,8 +184,11 @@ W `[settings]` ustawisz próg rabatu, stany, liczbę stron na frazę (`search_pa
   kolorystyki. Dlatego przy każdej cenie jest źródło z linkiem, do sprawdzenia jednym kliknięciem.
 - **Krótka nazwa marki w środku frazy nie jest rozpoznawana.** „on bluza” to zwykłe słowa, więc
   wpisz „On Running bluza”. Samo „On” działa.
-- **Ceneo i Vinted mogą zmienić stronę albo zablokować zapytania.** Ceneo wtedy wyłącza się do końca
-  skanu z komunikatem, a skan działa dalej na pozostałych źródłach. `--debug` pokazuje, co zwróciło Ceneo.
+- **Sklepy, Ceneo i Vinted mogą zmienić stronę albo zablokować zapytania.** Zalando, nike.com i adidas.pl
+  mają zabezpieczenia przed botami, więc bywa, że zwrócą HTTP 403. Taki serwis wyłącza się do końca skanu
+  z komunikatem, a skan działa dalej na pozostałych źródłach. `--debug` pokazuje, co zwrócił każdy serwis.
+- **Cena ze sklepu to najniższa cena regularna pasującego produktu.** Przy ogólnej nazwie („Nike Air Max”)
+  może to być tańszy model z tej linii. Na karcie widać, jaki produkt został dopasowany, z linkiem.
 - **API Vinted jest nieoficjalne.** Może się zmienić albo zacząć blokować (HTTP 403/429).
   Nie zmniejszaj `delay` i nie skanuj częściej niż co kilka minut. Przy błędach uruchom
   `scan --search "nike dunk" --debug`, wtedy widać zapytania i początek odpowiedzi Vinted.
@@ -175,4 +202,5 @@ pip install -e '.[dev]'
 pytest
 ```
 
-Testy nie łączą się z Vinted, Ceneo ani Claude: wszystkie klienty są podmieniane.
+Testy nie łączą się z Vinted, sklepami, Ceneo ani Claude: wszystkie klienty są podmieniane, a próba wyjścia
+do sieci kończy test błędem (`tests/conftest.py::no_network`).

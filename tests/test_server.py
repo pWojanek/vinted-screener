@@ -50,9 +50,9 @@ def ai_client():
 def server(tmp_path):
     started: list = []
 
-    def start(vinted=None, ai=None):
+    def start(vinted=None, ai=None, shops=()):
         service = ScanService(SETTINGS, BRANDS, vinted or FakeVinted(), State(tmp_path / "s.json"), ai_client=ai,
-                              html_path=str(tmp_path / "okazje.html"))
+                              shop_clients=shops, html_path=str(tmp_path / "okazje.html"))
         httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(service))
         threading.Thread(target=httpd.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
         started.append(httpd)
@@ -166,6 +166,25 @@ def test_rejects_foreign_host_and_non_json_post(server):
     with pytest.raises(urllib.error.HTTPError) as exc:
         urllib.request.urlopen(req, timeout=5)
     assert exc.value.code == 415
+
+
+def test_shop_prices_and_switch(server):
+    from test_shops import NIKE_COM, NIKE_PAGE, FakeSession
+
+    from vinted_screener.shops import ShopClient
+
+    session = FakeSession({"www.nike.com": NIKE_PAGE})
+    base, _ = server(shops=[ShopClient(NIKE_COM, delay=0, session=session, sleep=lambda s: None)])
+    data = json.loads(call(base + "/api/config")[1])
+    assert data["shops"] == ["nike.com"] and data["shops_default"] is True
+    call(base + "/api/scan", {"queries": ["Nike"], "seller": False})
+    status = wait_finished(base)
+    deal = status["deals"][0]
+    assert deal["retail"] == 499.99 and deal["retail_source"]["label"] == "nike.com" and status["lookups"] == {"sklepy": 1}
+
+    call(base + "/api/scan", {"queries": ["Nike"], "seller": False, "shops": False})
+    status = wait_finished(base)
+    assert len(session.urls) == 1 and status["deals"] == [] and "bez ceny odniesienia 1" in status["funnel"]
 
 
 def test_free_sources_can_be_switched_off_per_scan(server):

@@ -103,6 +103,12 @@ def is_specific(tokens: list[str]) -> bool:
     return len(tokens) == 1 and len(tokens[0]) >= 3 and any(ch.isdigit() for ch in tokens[0])
 
 
+def contains_all(name: str, tokens: list[str]) -> bool:
+    """Czy nazwa produktu ze sklepu zawiera wszystkie słowa modelu (całe słowa, bez polskich znaków)."""
+    text = normalize(name)
+    return all(re.search(rf"\b{re.escape(t)}\b", text) for t in tokens)
+
+
 def product_name(brand: str, tokens: list[str]) -> str:
     return f"{brand} {string.capwords(' '.join(tokens[:KEY_TOKENS]))}"
 

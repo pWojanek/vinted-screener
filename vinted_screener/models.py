@@ -135,7 +135,8 @@ class Listing:
 class RetailSource:
     """Skąd jest cena retail — pokazywane przy każdej okazji."""
 
-    # "web" (AI znalazło w sieci, link sprawdzony), "ceneo" (najniższa cena w sklepach), "watchlist" (watchlist.toml),
+    # "web" (AI znalazło w sieci, link sprawdzony), "shop" (cena regularna ze sklepu z [[shop]]),
+    # "ceneo" (najniższa cena w sklepach), "watchlist" (watchlist.toml),
     # "seller" (sprzedający w opisie), "estimate" (szacunek AI bez źródła), "market" (mediana podobnych ofert na Vinted)
     kind: str
     label: str  # np. "nike.com", "watchlista", "szacunek AI"

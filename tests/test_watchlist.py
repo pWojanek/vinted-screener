@@ -4,7 +4,7 @@ import pytest
 from conftest import make_item, raw_item
 
 from vinted_screener.models import Listing, normalize
-from vinted_screener.watchlist import Brand, Settings, WatchlistError, compile_term, load_brands, load_watchlist, size_matches
+from vinted_screener.watchlist import Brand, Settings, WatchlistError, compile_term, load_brands, load_shops, load_watchlist, size_matches
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -156,6 +156,28 @@ def test_brand_matching(brand_name, listing_brand, title, expected):
     settings, _ = load_watchlist(ROOT / "watchlist.toml")
     brand = {b.name: b for b in load_brands(ROOT / "watchlist.toml", settings)}[brand_name]
     assert brand.matches(listing(title, brand=listing_brand)) is expected
+
+
+def test_bundled_shops_load():
+    shops = {s.name: s for s in load_shops(ROOT / "watchlist.toml")}
+    assert {"Zalando", "nike.com", "adidas.pl"} <= set(shops)
+    brands = {b.name: b for b in load_brands(ROOT / "watchlist.toml", Settings())}
+    assert shops["nike.com"].sells(brands["Jordan"]) and not shops["nike.com"].sells(brands["adidas"])
+    assert shops["Zalando"].sells(brands["Carhartt WIP"]) and not shops["Zalando"].official
+    assert shops["adidas.pl"].link_base == "https://www.adidas.pl"
+
+
+@pytest.mark.parametrize(
+    "toml, error",
+    [('name = "A"\nsearch_url = "https://a.pl/szukaj"', "{q}"), ('name = "A"\nsearch_url = "http://a.pl/?q={q}"', "https://"),
+     ('search_url = "https://a.pl/?q={q}"', "name"),
+     ('name = "A"\nsearch_url = "https://a.pl/?q={q}"\ncurrency = "USD"', "currency")],
+)
+def test_shop_errors(tmp_path, toml, error):
+    path = tmp_path / "w.toml"
+    path.write_text(f"[[shop]]\n{toml}\n")
+    with pytest.raises(WatchlistError, match=error.replace("{", r"\{").replace("}", r"\}")):
+        load_shops(path)
 
 
 def test_old_setting_names_from_brand_mode_still_work(tmp_path):

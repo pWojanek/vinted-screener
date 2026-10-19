@@ -82,3 +82,15 @@ def make_item(**overrides: Any) -> WatchItem:
 @pytest.fixture
 def dunk() -> WatchItem:
     return make_item()
+
+
+class _NoNetwork:
+    def get(self, url: str, **kwargs: Any) -> Any:
+        raise AssertionError(f"test sięga do sieci: {url}")
+
+
+@pytest.fixture(autouse=True)
+def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Klienci bez podanej sesji (Vinted, Ceneo, sklepy) nie mogą w testach wyjść do internetu."""
+    for module in ("client", "ceneo", "shops"):
+        monkeypatch.setattr(f"vinted_screener.{module}.browser_session", _NoNetwork)

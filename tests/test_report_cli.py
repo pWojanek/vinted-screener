@@ -100,7 +100,7 @@ def test_cli_search_without_api_key_uses_watchlist(tmp_path, monkeypatch, capsys
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
     code = cli.main([
-        "scan", "-w", str(ROOT / "watchlist.toml"), "--search", "nike buty", "--no-ceneo", "--no-seller",
+        "scan", "-w", str(ROOT / "watchlist.toml"), "--search", "nike buty", "--no-shops", "--no-ceneo", "--no-seller",
         "--html", "", "--json", str(tmp_path / "o.json"), "--state", str(tmp_path / "s.json"), "-q",
     ])
     assert code == 0
@@ -109,6 +109,42 @@ def test_cli_search_without_api_key_uses_watchlist(tmp_path, monkeypatch, capsys
     deals = json.loads((tmp_path / "o.json").read_text())
     assert [d["id"] for d in deals] == [7]
     assert deals[0]["retail_source"]["kind"] == "watchlist"
+
+
+def test_cli_search_takes_regular_price_from_official_shop(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from test_shops import NIKE_PAGE
+
+    class FakeClient:
+        def __init__(self, **kwargs) -> None:
+            pass
+
+        def search(self, text, **kwargs):
+            return [raw_item("Nike Dunk Low Retro Panda", 150, id=7)]
+
+    pages = {"www.nike.com": NIKE_PAGE}
+    urls = []
+
+    def session():
+        def get(url, **kwargs):
+            urls.append(url)
+            return SimpleNamespace(status_code=200, text=pages.get(url.split("/")[2], ""))
+        return SimpleNamespace(get=get)
+
+    monkeypatch.setattr(cli, "VintedClient", FakeClient)
+    monkeypatch.setattr("vinted_screener.shops.browser_session", session)
+    monkeypatch.setattr("vinted_screener.shops.Throttle", lambda delay, sleep=None: SimpleNamespace(wait=lambda: None))
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    code = cli.main([
+        "scan", "-w", str(ROOT / "watchlist.toml"), "--search", "nike", "--no-ceneo", "--no-seller",
+        "--html", "", "--json", str(tmp_path / "o.json"), "--state", str(tmp_path / "s.json"), "-q",
+    ])
+    assert code == 0
+    deal = json.loads((tmp_path / "o.json").read_text())[0]
+    assert deal["retail"] == 499.99 and deal["retail_source"]["kind"] == "shop" and deal["retail_source"]["label"] == "nike.com"
+    assert urls == ["https://www.nike.com/pl/w?q=Nike+Dunk+Low&vst=Nike+Dunk+Low"], "model z watchlisty, nike.com przed Zalando"
 
 
 def test_watch_search_gets_fresh_ai_budget_each_cycle(tmp_path, monkeypatch):

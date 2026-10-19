@@ -2,7 +2,8 @@
 #
 # Dwa tryby:
 #   • wyszukiwarka (strona serve, scan --search) — wpisujesz markę albo typ rzeczy ("Nike bluza", "kurtka puchowa"),
-#     a cenę odniesienia screener bierze z Ceneo, z opisu sprzedającego albo z mediany Vinted (za darmo);
+#     a cenę odniesienia screener bierze ze sklepów ([[shop]], na dole pliku), z Ceneo, z opisu sprzedającego
+#     albo z mediany Vinted (za darmo);
 #     z kluczem ANTHROPIC_API_KEY także z AI. Znane marki ([[brand]], na dole pliku) rozpoznaje we frazie,
 #   • po modelach ([[item]]) — ręczna lista modeli z cenami; w wyszukiwarce służy też jako darmowy szacunek.
 #
@@ -35,8 +36,10 @@ delay = 1.5                # sekundy między zapytaniami (nie zmniejszaj, Vinted
 market_ttl_hours = 12      # jak długo trzymać w cache medianę cen z Vinted
 search_pages = 3           # wyszukiwarka: stron po 96 najnowszych ogłoszeń na frazę
 max_ai_cost = 2.0          # wyszukiwarka: limit kosztu AI na jeden skan, w USD (strona pozwala go zmienić)
+shops = true               # wyszukiwarka: ceny regularne ze sklepów z [[shop]] — Zalando, nike.com… (za darmo)
 ceneo = true               # wyszukiwarka: szukaj cen nowych produktów na Ceneo.pl (za darmo)
 seller_prices = true       # wyszukiwarka: czytaj ceny sklepowe z opisów sprzedających (za darmo)
+max_shop_per_search = 25   # nowych zapytań do sklepów na frazę (łącznie); zapamiętane ceny się nie liczą
 max_ceneo_per_search = 25  # nowych zapytań do Ceneo na frazę; zapamiętane ceny się nie liczą
 max_descriptions_per_search = 10  # opisów ogłoszeń pobieranych na frazę
 
@@ -607,3 +610,30 @@ suspicious_below = 40
 [[brand]]
 name = "Canada Goose"
 suspicious_below = 40
+
+# ─── Sklepy z cenami regularnymi (wyszukiwarka) ───────────────────────────────
+# Screener wpisuje nazwę produktu w wyszukiwarkę sklepu i czyta ceny z danych zapisanych w stronie wyników.
+# Bierze cenę regularną (sprzed promocji). Najpierw pyta oficjalny sklep marki, potem sklepy wielomarkowe,
+# a dopiero gdy nic nie znajdą — Ceneo. Sklep, który zablokuje zapytania, wyłącza się do końca skanu.
+# name       – etykieta przy cenie ("retail wg nike.com")
+# search_url – adres wyników wyszukiwania z {q} w miejscu frazy: wyszukaj coś w sklepie, skopiuj adres z paska
+#              przeglądarki i podmień wpisaną frazę na {q}
+# brands     – (opcjonalnie) oficjalny sklep tylko tych marek; bez tego sklep wielomarkowy, pytany o każdą markę
+# currency   – (opcjonalnie) PLN (domyślnie) albo EUR, przeliczane po 4,30 zł
+# link_base  – (opcjonalnie) czym zastąpić znacznik typu {countryLang} na początku linków do produktów
+# Czy sklep działa: scan --search "nike dunk" --debug pokazuje, ile produktów odczytano z każdego sklepu.
+
+[[shop]]
+name = "nike.com"
+search_url = "https://www.nike.com/pl/w?q={q}&vst={q}"
+brands = ["Nike", "Jordan"]
+link_base = "https://www.nike.com/pl"
+
+[[shop]]
+name = "adidas.pl"
+search_url = "https://www.adidas.pl/search?q={q}"
+brands = ["adidas"]
+
+[[shop]]
+name = "Zalando"
+search_url = "https://www.zalando.pl/katalog/?q={q}"

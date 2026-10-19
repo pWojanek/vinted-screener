@@ -7,6 +7,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from vinted_screener.models import Listing, normalize
 
@@ -77,8 +78,10 @@ class Settings:
     market_ttl_hours: float = 12.0
     search_pages: int = 3  # wyszukiwarka: stron po 96 najnowszych ogłoszeń na frazę
     max_ai_cost: float = 2.0  # wyszukiwarka: limit kosztu AI na jeden skan, w USD
+    shops: bool = True  # wyszukiwarka: ceny regularne ze sklepów z [[shop]] (Zalando, oficjalne sklepy marek)
     ceneo: bool = True  # wyszukiwarka: ceny sklepowe z Ceneo.pl
     seller_prices: bool = True  # wyszukiwarka: ceny podane przez sprzedających w opisach
+    max_shop_per_search: int = 25  # nowych zapytań do sklepów na frazę, łącznie (zapamiętane nie liczą się)
     max_ceneo_per_search: int = 25  # nowych zapytań do Ceneo na frazę (zapamiętane nie liczą się)
     max_descriptions_per_search: int = 10  # opisów ogłoszeń pobieranych na frazę
 
@@ -156,6 +159,31 @@ class Brand:
         return self.owns(listing.brand) and not globally_excluded(normalize(f"{listing.title} {listing.brand}"))
 
 
+@dataclass(frozen=True)
+class Shop:
+    """Sklep internetowy, z którego bierzemy cenę regularną: wielomarkowy (Zalando) albo oficjalny sklep marek."""
+
+    name: str  # etykieta przy cenie, np. "Zalando", "nike.com"
+    search_url: str  # adres wyników wyszukiwania z {q} w miejscu frazy
+    brands: tuple[str, ...] = ()  # oficjalny sklep tych marek; puste = sklep wielomarkowy
+    currency: str = "PLN"
+    link_base: str = ""  # czym zastąpić znacznik typu {countryLang} na początku linków; domyślnie adres sklepu
+    _keys: BrandKeys = field(default=(), repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_keys", brand_keys(self.brands))
+        if not self.link_base:
+            parts = urlsplit(self.search_url)
+            object.__setattr__(self, "link_base", f"{parts.scheme}://{parts.netloc}")
+
+    @property
+    def official(self) -> bool:
+        return bool(self.brands)
+
+    def sells(self, brand: Brand) -> bool:
+        return not self.brands or brand_in(self._keys, brand.name) or any(brand.owns(b) for b in self.brands)
+
+
 def size_matches(size: str, wanted: tuple[str, ...]) -> bool:
     """"42" pasuje do "42", "EU 42" i "M / 42", ale nie do "42,5"."""
     if not wanted:
@@ -218,6 +246,33 @@ def load_brands(path: str | Path, settings: Settings) -> list[Brand]:
     return brands
 
 
+SHOP_CURRENCIES = ("PLN", "EUR")
+
+
+def load_shops(path: str | Path) -> list[Shop]:
+    shops = []
+    seen = set()
+    for i, raw in enumerate(_read_toml(Path(path)).get("shop", []), start=1):
+        where = f"shop #{i} ({raw.get('name', '?')})"
+        name, url = raw.get("name"), raw.get("search_url")
+        if not isinstance(name, str) or not name.strip():
+            raise WatchlistError(f"{where}: brak pola 'name'")
+        if normalize(name) in seen:
+            raise WatchlistError(f"{where}: zdublowany sklep")
+        seen.add(normalize(name))
+        if not isinstance(url, str) or not url.startswith("https://") or "{q}" not in url:
+            raise WatchlistError(f"{where}: search_url musi zaczynać się od https:// i zawierać {{q}} w miejscu frazy")
+        currency = raw.get("currency", "PLN")
+        if currency not in SHOP_CURRENCIES:
+            raise WatchlistError(f"{where}: currency musi być jedną z: {', '.join(SHOP_CURRENCIES)}")
+        try:
+            brands = _str_tuple(raw.get("brands", []), "brands")
+        except WatchlistError as exc:
+            raise WatchlistError(f"{where}: {exc}") from None
+        shops.append(Shop(name=name, search_url=url, brands=brands, currency=currency, link_base=raw.get("link_base", "")))
+    return shops
+
+
 def load_watchlist(path: str | Path) -> tuple[Settings, list[WatchItem]]:
     path = Path(path)
     data = _read_toml(path)
@@ -237,8 +292,10 @@ def load_watchlist(path: str | Path) -> tuple[Settings, list[WatchItem]]:
         market_ttl_hours=float(raw_settings.get("market_ttl_hours", defaults.market_ttl_hours)),
         search_pages=int(_setting(raw_settings, "search_pages", "brand_pages", defaults.search_pages)),
         max_ai_cost=float(raw_settings.get("max_ai_cost", defaults.max_ai_cost)),
+        shops=bool(raw_settings.get("shops", defaults.shops)),
         ceneo=bool(raw_settings.get("ceneo", defaults.ceneo)),
         seller_prices=bool(raw_settings.get("seller_prices", defaults.seller_prices)),
+        max_shop_per_search=int(raw_settings.get("max_shop_per_search", defaults.max_shop_per_search)),
         max_ceneo_per_search=int(
             _setting(raw_settings, "max_ceneo_per_search", "max_ceneo_per_brand", defaults.max_ceneo_per_search)
         ),

@@ -107,6 +107,7 @@ main { display: grid; gap: 14px; padding-bottom: 40px; grid-template-columns: re
       <label>Min. rabat <select id="o-disc">
         <option value="40">40%</option><option value="50">50%</option>
         <option value="60">60%</option><option value="70">70%</option></select></label>
+      <label id="o-shops-label"><input type="checkbox" id="o-shops" checked> ceny ze sklepów</label>
       <label id="o-ceneo-label"><input type="checkbox" id="o-ceneo" checked> ceny z Ceneo</label>
       <label><input type="checkbox" id="o-seller" checked> czytaj opisy sprzedających</label>
       <label id="o-cost-label">Limit kosztu AI <input type="number" id="o-cost" min="0" max="50" step="0.5"> USD</label>
@@ -130,7 +131,7 @@ main { display: grid; gap: 14px; padding-bottom: 40px; grid-template-columns: re
     <option value="0">dowolny</option><option value="0.5">50%</option><option value="0.6">60%</option>
     <option value="0.7">70%</option><option value="0.8">80%</option></select></label>
   <label>Źródło ceny <select id="src">
-    <option value="">dowolne</option><option value="shop">ze sklepów (Ceneo, AI)</option>
+    <option value="">dowolne</option><option value="shop">ze sklepów (sklepy, Ceneo, AI)</option>
     <option value="noest">bez szacunków i median</option></select></label>
   <label>Sortuj <select id="sort">
     <option value="score">wynik</option><option value="discount">rabat</option>
@@ -178,6 +179,7 @@ function sourceLine(d) {
   const details = [s.product && `produkt: ${s.product}`, s.checked_at && `sprawdzono ${s.checked_at}`, s.note].filter(Boolean).join(" · ");
   const link = s.url ? `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.label)} ↗</a>` : esc(s.label);
   if (s.kind === "web") return `<div class="src" title="${esc(details)}">retail wg ${link}${s.note ? " · " + esc(s.note) : ""}</div>`;
+  if (s.kind === "shop") return `<div class="src" title="${esc(details)}">retail wg ${link}${s.note ? " · " + esc(s.note) : ""}</div>`;
   if (s.kind === "ceneo") return `<div class="src" title="${esc(details)}">wg ${link} · najniższa cena w sklepach</div>`;
   if (s.kind === "seller") return `<div class="src" title="${esc(details)}">wg sprzedającego: ${esc(s.note)}</div>`;
   if (s.kind === "estimate") return `<div class="src est" title="${esc(details)}">⚠ retail to ${esc(s.label)}${s.note ? " — " + esc(s.note) : ""}</div>`;
@@ -227,7 +229,7 @@ function render(emptyText) {
   const rows = deals.filter((d) =>
     (!cat || d.category === cat) && (!model || d.model === model) && d.retail_discount >= minDisc &&
     (showSus || !d.suspicious) && (!q || (d.title + " " + d.model).toLowerCase().includes(q)) &&
-    (!src || (src === "shop" ? ["web", "ceneo"].includes(kind(d)) : !APPROX_KINDS.includes(kind(d))))
+    (!src || (src === "shop" ? ["web", "shop", "ceneo"].includes(kind(d)) : !APPROX_KINDS.includes(kind(d))))
   ).sort(sorters[$("sort").value]);
   $("grid").innerHTML = rows.length ? rows.map(card).join("") : `<div class="empty">${esc(lastEmptyText)}</div>`;
 }
@@ -319,7 +321,7 @@ if (BOOT.mode === "app") {
   function onInput() { suggest(); updateEstimate(); saveOptions(); }
   $("s-input").addEventListener("input", onInput);
 
-  const optionIds = ["o-known", "o-sizes", "o-disc", "o-cost", "o-sus", "o-ceneo", "o-seller"];
+  const optionIds = ["o-known", "o-sizes", "o-disc", "o-cost", "o-sus", "o-shops", "o-ceneo", "o-seller"];
   function loadOptions() {
     const o = store.get("vs-options-v2", {});
     $("s-input").value = o.text ?? recent[0] ?? "";
@@ -329,18 +331,20 @@ if (BOOT.mode === "app") {
     if (!$("o-disc").value) $("o-disc").value = "50";
     $("o-cost").value = o.cost ?? config.max_ai_cost;
     $("o-sus").checked = o.sus ?? false;
+    $("o-shops").checked = o.shops ?? config.shops_default;
     $("o-ceneo").checked = o.ceneo ?? config.ceneo_default;
     $("o-seller").checked = o.seller ?? config.seller_default;
   }
   function saveOptions() {
     store.set("vs-options-v2", { text: $("s-input").value, known: $("o-known").checked, sizes: $("o-sizes").value,
                                  disc: $("o-disc").value, cost: $("o-cost").value, sus: $("o-sus").checked,
-                                 ceneo: $("o-ceneo").checked, seller: $("o-seller").checked });
+                                 shops: $("o-shops").checked, ceneo: $("o-ceneo").checked, seller: $("o-seller").checked });
   }
   optionIds.forEach((id) => $(id).addEventListener("input", () => { saveOptions(); updateEstimate(); }));
 
   function showAiStatus() {
-    const free = "Ceneo (najniższa cena nowego w sklepach), opis sprzedającego („cena w sklepie…”) i watchlista; " +
+    const shops = config.shops.length ? `cena regularna ze sklepów (${config.shops.join(", ")}), ` : "";
+    const free = `${shops}Ceneo (najniższa cena nowego w sklepach), opis sprzedającego („cena w sklepie…”) i watchlista; ` +
       "gdy żadnego nie ma — mediana podobnych ofert na Vinted.";
     if (config.ai_enabled) {
       $("ai-status").textContent = `Ceny odniesienia: AI (${config.ai_model}) szuka ceny regularnej w sieci, a poza tym ${free} ` +
@@ -351,6 +355,9 @@ if (BOOT.mode === "app") {
       $("o-cost-label").hidden = true;
     }
     $("o-ceneo-label").hidden = !config.ceneo_available;
+    $("o-shops-label").hidden = !config.shops.length;
+    $("o-shops-label").title = "Cena regularna (sprzed promocji) z: " + config.shops.join(", ") +
+      ". Sklepy dopisujesz w watchlist.toml ([[shop]]).";
   }
 
   const understood = (q) => `„${q.text}” → ${q.scope}`;
@@ -368,7 +375,9 @@ if (BOOT.mode === "app") {
     if (s.total) parts.push(`${s.deals.length} okazji z ${s.listings_seen} ogłoszeń`);
     if (s.ai_cost_usd || s.ai_searches) parts.push(`AI: ${usd(s.ai_cost_usd)}, ${s.ai_searches} wyszukiwań`);
     const lk = s.lookups || {};
-    if (lk.ceneo || lk.opisy) parts.push(`Ceneo: ${lk.ceneo || 0} zapytań · opisy: ${lk.opisy || 0}`);
+    if (lk.sklepy || lk.ceneo || lk.opisy) {
+      parts.push(`sklepy: ${lk.sklepy || 0} zapytań · Ceneo: ${lk.ceneo || 0} · opisy: ${lk.opisy || 0}`);
+    }
     if (s.funnel) parts.push(`odpadło: ${s.funnel}`);
     $("progress-text").textContent = parts.join(" · ");
     $("understood").textContent = (s.searches || []).map(understood).join(" · ");
@@ -404,7 +413,7 @@ if (BOOT.mode === "app") {
     const body = {
       queries: list, only_known_brands: $("o-known").checked, sizes,
       min_discount: Number($("o-disc").value), show_suspicious: $("o-sus").checked,
-      ceneo: $("o-ceneo").checked, seller: $("o-seller").checked,
+      shops: $("o-shops").checked, ceneo: $("o-ceneo").checked, seller: $("o-seller").checked,
     };
     if (config.ai_enabled) body.max_ai_cost = Math.min(50, Math.max(0, parseFloat($("o-cost").value) || 0));
     try {

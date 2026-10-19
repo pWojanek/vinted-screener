@@ -18,6 +18,7 @@ from urllib.parse import quote_plus
 
 from vinted_screener.client import Throttle, browser_session
 from vinted_screener.models import RetailPrice, RetailSource, normalize
+from vinted_screener.products import contains_all
 from vinted_screener.state import State
 
 BASE_URL = "https://www.ceneo.pl"
@@ -148,11 +149,6 @@ class CeneoClient:
         return products
 
 
-def _contains_all(name: str, tokens: list[str]) -> bool:
-    text = normalize(name)
-    return all(re.search(rf"\b{re.escape(t)}\b", text) for t in tokens)
-
-
 class CeneoPrices:
     """Cena sklepowa produktu z Ceneo, z cache w State; tylko produkt, którego nazwa zawiera wszystkie słowa modelu."""
 
@@ -179,7 +175,7 @@ class CeneoPrices:
             self.disabled_reason = str(exc)
             return None
         self.lookups += 1
-        match = next((p for p in products if p.price > 0 and _contains_all(p.name, tokens)), None)
+        match = next((p for p in products if p.price > 0 and contains_all(p.name, tokens)), None)
         if not match:
             self.state.put_cached("ceneo", key, {"found": False})
             return None
