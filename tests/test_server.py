@@ -34,6 +34,10 @@ class FakeVinted:
             return [raw_item("Nike dunk low panda", 150, id=1, size="42")]
         return [raw_item("Adidas samba", 150, id=2, brand="adidas")]
 
+    def item_description(self, item_id):
+        self.calls.append({"description": item_id})
+        return None
+
 
 def ai_client():
     identify = text_response({"items": [{"i": 0, "p": "Nike Dunk Low Retro", "c": "Sneakersy", "r": 450, "q": "high"}]})
@@ -154,3 +158,18 @@ def test_rejects_foreign_host_and_non_json_post(server):
     with pytest.raises(urllib.error.HTTPError) as exc:
         urllib.request.urlopen(req, timeout=5)
     assert exc.value.code == 415
+
+
+def test_free_sources_can_be_switched_off_per_scan(server):
+    vinted = FakeVinted()
+    base, _ = server(vinted)
+    data = json.loads(call(base + "/api/watchlist")[1])
+    assert data["ceneo_available"] is False and data["seller_default"] is True
+    call(base + "/api/scan", {"brands": ["Nike"], "seller": False})
+    wait_finished(base)
+    assert not any("description" in c for c in vinted.calls)
+
+    call(base + "/api/scan", {"brands": ["Nike"]})
+    status = wait_finished(base)
+    assert any("description" in c for c in vinted.calls)
+    assert status["lookups"] == {"opisy": 1}

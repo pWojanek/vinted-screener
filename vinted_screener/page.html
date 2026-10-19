@@ -15,6 +15,7 @@
           --accent: #3fb6c0; --accent-soft: #173a3d; --good: #4ac26b; --warn: #f0a24a; --warn-soft: #3a2a17; --bad: #ff7a59; }
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body { margin: 0; background: var(--bg); color: var(--text);
        font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 a { color: var(--accent); }
@@ -78,7 +79,8 @@ main { display: grid; gap: 14px; padding-bottom: 40px; grid-template-columns: re
 .title { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .price { font-size: 20px; font-weight: 700; }
 .price s { font-size: 13px; color: var(--muted); font-weight: 400; margin-left: 6px; }
-.src { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.src { font-size: 12px; color: var(--muted); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2;
+       -webkit-box-orient: vertical; }
 .src.est { color: var(--warn); }
 .mk-good { color: var(--good); } .mk-bad { color: var(--warn); }
 .empty { grid-column: 1 / -1; text-align: center; color: var(--muted); padding: 60px 0; }
@@ -113,6 +115,8 @@ main { display: grid; gap: 14px; padding-bottom: 40px; grid-template-columns: re
       <label>Min. rabat <select id="o-disc">
         <option value="40">40%</option><option value="50">50%</option>
         <option value="60">60%</option><option value="70">70%</option></select></label>
+      <label id="o-ceneo-label"><input type="checkbox" id="o-ceneo" checked> ceny z Ceneo</label>
+      <label><input type="checkbox" id="o-seller" checked> czytaj opisy sprzedających</label>
       <label id="o-cost-label">Limit kosztu AI <input type="number" id="o-cost" min="0" max="50" step="0.5"> USD</label>
       <label><input type="checkbox" id="o-sus"> szukaj też podejrzanie tanich</label>
     </div>
@@ -137,8 +141,8 @@ main { display: grid; gap: 14px; padding-bottom: 40px; grid-template-columns: re
     <option value="0">dowolny</option><option value="0.5">50%</option><option value="0.6">60%</option>
     <option value="0.7">70%</option><option value="0.8">80%</option></select></label>
   <label>Źródło ceny <select id="src">
-    <option value="">dowolne</option><option value="web">tylko potwierdzone w sieci</option>
-    <option value="noest">bez szacunków AI</option></select></label>
+    <option value="">dowolne</option><option value="shop">ze sklepów (Ceneo, AI)</option>
+    <option value="noest">bez szacunków i median</option></select></label>
   <label>Sortuj <select id="sort">
     <option value="score">wynik</option><option value="discount">rabat</option>
     <option value="price">cena</option><option value="newest">najnowsze</option></select></label>
@@ -179,15 +183,16 @@ const sorters = {
   price: (a, b) => a.total_price - b.total_price,
   newest: (a, b) => (b.uploaded_at || "").localeCompare(a.uploaded_at || ""),
 };
+const APPROX_KINDS = ["estimate", "market"];
 function sourceLine(d) {
   const s = d.retail_source || { kind: "watchlist", label: "watchlista" };
   const details = [s.product && `produkt: ${s.product}`, s.checked_at && `sprawdzono ${s.checked_at}`, s.note].filter(Boolean).join(" · ");
-  if (s.kind === "web" && s.url) {
-    return `<div class="src" title="${esc(details)}">retail wg <a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.label)} ↗</a>${s.note ? " · " + esc(s.note) : ""}</div>`;
-  }
-  if (s.kind === "estimate") {
-    return `<div class="src est" title="${esc(details)}">⚠ retail to ${esc(s.label)}${s.note ? " — " + esc(s.note) : ""}</div>`;
-  }
+  const link = s.url ? `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.label)} ↗</a>` : esc(s.label);
+  if (s.kind === "web") return `<div class="src" title="${esc(details)}">retail wg ${link}${s.note ? " · " + esc(s.note) : ""}</div>`;
+  if (s.kind === "ceneo") return `<div class="src" title="${esc(details)}">wg ${link} · najniższa cena w sklepach</div>`;
+  if (s.kind === "seller") return `<div class="src" title="${esc(details)}">wg sprzedającego: ${esc(s.note)}</div>`;
+  if (s.kind === "estimate") return `<div class="src est" title="${esc(details)}">⚠ retail to ${esc(s.label)}${s.note ? " — " + esc(s.note) : ""}</div>`;
+  if (s.kind === "market") return `<div class="src est" title="${esc(details)}">⚠ brak ceny retail — porównanie z: ${esc(s.label)}</div>`;
   return `<div class="src" title="${esc(details)}">retail wg ${esc(s.label)}</div>`;
 }
 function card(d) {
@@ -198,7 +203,7 @@ function card(d) {
       (d.market_discount != null ? ` · <span class="${cls}">${d.market_discount > 0 ? "−" : "+"}${pct(Math.abs(d.market_discount))}</span>` : "") +
       `</div>`;
   }
-  const estimated = d.retail_source && d.retail_source.kind === "estimate";
+  const estimated = d.retail_source && APPROX_KINDS.includes(d.retail_source.kind);
   return `<div class="card">
     <a class="card-main" href="${esc(d.url)}" target="_blank" rel="noopener">
       <div class="photo" style="background-image:url('${esc(d.photo || "")}')">
@@ -233,7 +238,7 @@ function render(emptyText) {
   const rows = deals.filter((d) =>
     (!cat || d.category === cat) && (!model || d.model === model) && d.retail_discount >= minDisc &&
     (showSus || !d.suspicious) && (!q || (d.title + " " + d.model).toLowerCase().includes(q)) &&
-    (!src || (src === "web" ? kind(d) === "web" : kind(d) !== "estimate"))
+    (!src || (src === "shop" ? ["web", "ceneo"].includes(kind(d)) : !APPROX_KINDS.includes(kind(d))))
   ).sort(sorters[$("sort").value]);
   $("grid").innerHTML = rows.length ? rows.map(card).join("") : `<div class="empty">${esc(lastEmptyText)}</div>`;
 }
@@ -314,7 +319,7 @@ if (BOOT.mode === "app") {
   }
   $("collapse").onclick = () => setCollapsed(!$("panel").classList.contains("collapsed"));
 
-  const optionIds = ["o-query", "o-sizes", "o-disc", "o-cost", "o-sus"];
+  const optionIds = ["o-query", "o-sizes", "o-disc", "o-cost", "o-sus", "o-ceneo", "o-seller"];
   function loadOptions() {
     const o = store.get("vs-options-v2", {});
     $("o-query").value = o.query ?? "";
@@ -323,24 +328,29 @@ if (BOOT.mode === "app") {
     if (!$("o-disc").value) $("o-disc").value = "50";
     $("o-cost").value = o.cost ?? catalog.max_ai_cost;
     $("o-sus").checked = o.sus ?? false;
+    $("o-ceneo").checked = o.ceneo ?? catalog.ceneo_default;
+    $("o-seller").checked = o.seller ?? catalog.seller_default;
   }
   function saveOptions() {
     store.set("vs-options-v2", { query: $("o-query").value, sizes: $("o-sizes").value, disc: $("o-disc").value,
-                                 cost: $("o-cost").value, sus: $("o-sus").checked });
+                                 cost: $("o-cost").value, sus: $("o-sus").checked,
+                                 ceneo: $("o-ceneo").checked, seller: $("o-seller").checked });
     updateCounts();
   }
   optionIds.forEach((id) => $(id).addEventListener("input", saveOptions));
 
   function showAiStatus() {
+    const free = "Ceneo (najniższa cena nowego w sklepach), opis sprzedającego („cena w sklepie…”) i watchlista; " +
+      "gdy żadnego nie ma — mediana podobnych ofert na Vinted.";
     if (catalog.ai_enabled) {
-      $("ai-status").textContent = `Ceny retail ustala AI (${catalog.ai_model}): rozpoznaje produkt z tytułu ` +
-        "i szuka ceny regularnej w sieci. Przy każdej okazji widać źródło: link do sklepu albo „szacunek AI”.";
+      $("ai-status").textContent = `Ceny odniesienia: AI (${catalog.ai_model}) szuka ceny regularnej w sieci, a poza tym ${free} ` +
+        "Przy każdej okazji widać źródło.";
     } else {
-      $("ai-status").classList.add("off");
-      $("ai-status").textContent = "AI wyłączone — brak klucza ANTHROPIC_API_KEY. Ceny retail będą tylko dla modeli " +
-        "z watchlisty. Jak włączyć: README → „Klucz API”.";
+      $("ai-status").textContent = `Ceny odniesienia (za darmo): ${free} Przy każdej okazji widać źródło. ` +
+        "AI jest opcjonalne — README → „Klucz API”.";
       $("o-cost-label").hidden = true;
     }
+    $("o-ceneo-label").hidden = !catalog.ceneo_available;
   }
 
   function showStatus(s) {
@@ -355,6 +365,8 @@ if (BOOT.mode === "app") {
     else if (s.finished_at) parts.push(`zakończono ${new Date(s.finished_at).toLocaleTimeString("pl-PL")} · ${s.done}/${s.total} marek`);
     if (s.total) parts.push(`${s.deals.length} okazji z ${s.listings_seen} ogłoszeń`);
     if (s.ai_cost_usd || s.ai_searches) parts.push(`AI: ${usd(s.ai_cost_usd)}, ${s.ai_searches} wyszukiwań`);
+    const lk = s.lookups || {};
+    if (lk.ceneo || lk.opisy) parts.push(`Ceneo: ${lk.ceneo || 0} zapytań · opisy: ${lk.opisy || 0}`);
     if (s.funnel) parts.push(`odpadło: ${s.funnel}`);
     $("progress-text").textContent = parts.join(" · ");
     $("scan-errors").textContent = Object.entries(s.errors || {}).map(([k, v]) => `${k}: ${v}`).join("\n");
@@ -379,6 +391,7 @@ if (BOOT.mode === "app") {
     const body = {
       brands: allBrands().filter((b) => selected.has(b)), query: $("o-query").value.trim(), sizes,
       min_discount: Number($("o-disc").value), show_suspicious: $("o-sus").checked,
+      ceneo: $("o-ceneo").checked, seller: $("o-seller").checked,
     };
     if (catalog.ai_enabled) body.max_ai_cost = Math.min(50, Math.max(0, parseFloat($("o-cost").value) || 0));
     try {

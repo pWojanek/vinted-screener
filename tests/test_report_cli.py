@@ -93,19 +93,19 @@ def test_cli_scan_brand_mode_without_api_key_uses_watchlist(tmp_path, monkeypatc
             pass
 
         def search(self, text, **kwargs):
-            assert text == "nike buty" and kwargs["pages"] == 2
+            assert text == "nike buty" and kwargs["pages"] == 3
             return [raw_item("Nike Dunk Low Panda", 150, id=7), raw_item("Nike bluza", 50, id=8)]
 
     monkeypatch.setattr(cli, "VintedClient", FakeClient)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
     code = cli.main([
-        "scan", "-w", str(ROOT / "watchlist.toml"), "--brand", "nike", "--query", "buty",
+        "scan", "-w", str(ROOT / "watchlist.toml"), "--brand", "nike", "--query", "buty", "--no-ceneo", "--no-seller",
         "--html", "", "--json", str(tmp_path / "o.json"), "--state", str(tmp_path / "s.json"), "-q",
     ])
     assert code == 0
     err = capsys.readouterr().err
-    assert "brak ANTHROPIC_API_KEY" in err and "nierozpoznany produkt 1" in err
+    assert "brak ANTHROPIC_API_KEY" in err and "bez ceny odniesienia 1" in err
     deals = json.loads((tmp_path / "o.json").read_text())
     assert [d["id"] for d in deals] == [7]
     assert deals[0]["retail_source"]["kind"] == "watchlist"

@@ -135,12 +135,20 @@ class Listing:
 class RetailSource:
     """Skąd jest cena retail — pokazywane przy każdej okazji."""
 
-    kind: str  # "web" (znaleziona w sieci), "watchlist" (ręcznie w watchlist.toml), "estimate" (szacunek AI)
+    # "web" (AI znalazło w sieci, link sprawdzony), "ceneo" (najniższa cena w sklepach), "watchlist" (watchlist.toml),
+    # "seller" (sprzedający w opisie), "estimate" (szacunek AI bez źródła), "market" (mediana podobnych ofert na Vinted)
+    kind: str
     label: str  # np. "nike.com", "watchlista", "szacunek AI"
     url: str | None = None
     product: str | None = None  # dla jakiego produktu jest ta cena
     note: str | None = None
     checked_at: str | None = None  # ISO, kiedy sprawdzono
+
+
+@dataclass(frozen=True)
+class RetailPrice:
+    price: float
+    source: RetailSource
 
 
 @dataclass(frozen=True)

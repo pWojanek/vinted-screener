@@ -2,39 +2,42 @@
 
 Screener okazji na Vinted. Pokazuje rzeczy wystawione **dużo poniżej ceny sklepowej** (domyślnie
 co najmniej 50% taniej), w stanie nowym z metką, nowym albo bardzo dobrym. Przy każdej okazji
-widać, **skąd jest cena retail**.
+widać, **skąd jest cena odniesienia**.
 
 Działa w dwóch trybach:
 
 - **Po markach (główny, na stronie `serve`).** Wybierasz marki, np. Nike, Carhartt WIP czy Ralph Lauren.
-  Screener bierze najnowsze ogłoszenia tych marek, a cenę retail ustala AI (Claude Opus 5.5): rozpoznaje
-  produkt z tytułu i szuka jego ceny regularnej w sieci. Nie trzeba wpisywać modeli ani cen.
-- **Po modelach z `watchlist.toml`.** Ręczna lista 47 modeli z orientacyjnymi cenami. Jest darmowa
-  i działa bez AI. W trybie marek ta lista służy też jako darmowy szacunek i zapasowe źródło ceny.
+  Screener bierze najnowsze ogłoszenia tych marek i sam szuka ceny. **Za darmo, bez AI.** Klucz API
+  Claude jest opcjonalny i daje dokładniejsze ceny dla rzeczy, których nie ma na Ceneo.
+- **Po modelach z `watchlist.toml`.** Ręczna lista 47 modeli z orientacyjnymi cenami. W trybie marek
+  ta lista też służy jako jedno ze źródeł.
 
-## Skąd jest cena retail (tryb marek)
+## Skąd jest cena (tryb marek)
 
-1. **Rozpoznanie.** Tytuły ogłoszeń idą do Claude partiami po 40. Dla każdego Claude zwraca nazwę
-   produktu (np. „Carhartt WIP Hooded Chase Sweat”), kategorię i szacunek ceny. Ogłoszenia pasujące
-   do modelu z watchlisty pomijają ten krok.
-2. **Kandydaci.** Dalej idą tylko rzeczy, które według szacunku mogą być okazją. Ogłoszenia
-   z ogólnym tytułem (np. „bluza Nike”) odpadają jako „nierozpoznany produkt”.
-3. **Cena w sieci.** Dla każdego kandydata Claude szuka ceny regularnej: najpierw w oficjalnym
-   sklepie marki, potem u autoryzowanych sprzedawców (Zalando, Answear, Footshop…). Nie bierze cen
-   z rynku wtórnego. Podaje adres strony z ceną, a screener sprawdza, że ten adres naprawdę był
-   w wynikach wyszukiwania.
-4. **Źródło na karcie.** Każda okazja ma jedną z trzech etykiet:
-   - **„retail wg nike.com ↗”** to cena znaleziona w sieci, z linkiem do strony,
-   - **„retail wg watchlisty (orientacyjnie)”** to cena z `watchlist.toml`, gdy w sieci się nie udało,
-   - **„⚠ retail to szacunek AI”** to cena bez źródła (pomarańczowa etykieta), z powodem, np. limit kosztu.
+Dla każdego ogłoszenia screener najpierw ustala, jaki to produkt, czyli wyciąga z tytułu słowa modelu.
+Np. z „Nike Dunk Low Retro Panda 42 nowe” robi „Nike Dunk Low Retro”, a numery modeli typu 550, 1460
+czy XT-6 zostają. Potem bierze pierwsze dostępne źródło ceny, w tej kolejności:
 
-   W wynikach jest filtr **„Źródło ceny: tylko potwierdzone w sieci”**.
-5. **Pamięć.** Rozpoznania są pamiętane 14 dni, a ceny produktów 30 dni (`.vinted-screener/state.json`).
-   Kolejne skany płacą tylko za nowe ogłoszenia i nowe produkty.
+| Źródło | Etykieta na karcie | Uwagi |
+|---|---|---|
+| AI z wyszukiwarką (opcjonalne) | „retail wg nike.com ↗” | Cena regularna ze sklepu. Link sprawdzony w wynikach wyszukiwania. |
+| **Ceneo.pl** | „wg Ceneo ↗ · najniższa cena w sklepach” | Najtańsza oferta nowego produktu. Przyjmowana tylko, gdy nazwa na Ceneo zawiera wszystkie słowa modelu. |
+| Watchlista | „retail wg watchlisty (orientacyjnie)” | Ręczne ceny z `watchlist.toml`. |
+| **Opis sprzedającego** | „wg sprzedającego: „Cena w sklepie 349 zł”” | Cytat z opisu ogłoszenia. Działa także dla ogólnych tytułów typu „Bluza Nike”. |
+| Szacunek AI (opcjonalny) | „⚠ retail to szacunek AI” | Gdy AI rozpoznało produkt, ale nie znalazło ceny. |
+| **Mediana Vinted** | „⚠ brak ceny retail — porównanie z: mediana Vinted (7 ofert)” | Ostatnia deska ratunku, gdy jest min. 6 podobnych ofert. To cena rynkowa, nie sklepowa. |
 
-Rabat liczony jest od pełnej ceny dla kupującego (cena + ochrona kupujących, bez wysyłki).
-Wynik 0–100 łączy rabat od retailu (65%) i rabat względem mediany tego samego produktu na Vinted
-(35%), pomnożone przez stan. Ceny poniżej 20–40% retailu (zależnie od tego, jak często marka jest
+Pomarańczowe etykiety oznaczają cenę przybliżoną. W wynikach jest filtr **„Źródło ceny”**:
+„ze sklepów (Ceneo, AI)” albo „bez szacunków i median”.
+
+Żeby nie zasypać serwisów zapytaniami, Ceneo dostaje najwyżej 25 nowych zapytań na markę, a opisów
+pobiera się najwyżej 10 na markę. W pierwszej kolejności idą nowe rzeczy i te najtańsze względem
+podobnych. Wyniki są pamiętane w `.vinted-screener/state.json`: Ceneo 7 dni, opisy 14 dni. Kolejne skany
+są więc szybsze i obejmują więcej produktów.
+
+Rabat liczony jest od pełnej ceny dla kupującego (cena + ochrona kupujących, bez wysyłki). Wynik 0–100
+łączy rabat od ceny odniesienia (65%) i rabat względem mediany podobnych ofert na Vinted (35%),
+pomnożone przez stan. Ceny poniżej 20–40% odniesienia (zależnie od tego, jak często marka jest
 podrabiana) są ukryte jako podejrzane. Repliki, same pudełka, rzeczy dziecięce, zamiany i uszkodzone
 rzeczy odpadają zawsze.
 
@@ -47,13 +50,15 @@ python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\act
 pip install -e .
 ```
 
-Zależności to `curl_cffi` (udaje Chrome, bo zwykłe `requests` Vinted blokuje) i `anthropic` (Claude).
+Zależności to `curl_cffi` (udaje Chrome, bo zwykłe `requests` Vinted i Ceneo blokują)
+i `anthropic` (używany tylko, gdy ustawisz klucz API).
 
-### Klucz API
+### Klucz API (opcjonalnie)
 
-Tryb marek potrzebuje klucza API Anthropic. Utworzysz go na https://console.anthropic.com
-(Settings → API Keys), a płaci się za użycie. Bez klucza strona działa, ale ceny retail są tylko
-dla modeli z watchlisty.
+Bez klucza wszystko działa za darmo na Ceneo, opisach sprzedających, watchliście i medianie Vinted.
+Z kluczem API Anthropic dochodzi AI. Rozpoznaje produkty także z nietypowych tytułów i szuka ceny
+regularnej w oficjalnych sklepach. Klucz utworzysz na https://console.anthropic.com (Settings → API Keys),
+a płaci się za użycie.
 
 ```powershell
 # Windows PowerShell — tylko w tym oknie
@@ -66,7 +71,7 @@ setx ANTHROPIC_API_KEY "sk-ant-..."
 export ANTHROPIC_API_KEY="sk-ant-..."   # Linux / macOS
 ```
 
-**Koszt.** Rozpoznanie 40 tytułów to ok. $0,05, a sprawdzenie ceny jednego produktu w sieci
+**Koszt AI.** Rozpoznanie 40 tytułów to ok. $0,05, a sprawdzenie ceny jednego produktu w sieci
 ok. $0,05–0,10. Pierwszy skan 3–5 marek to zwykle $1–3, kolejne są tańsze dzięki pamięci.
 Każdy skan ma limit kosztu (domyślnie $2, do zmiany na stronie albo `max_ai_cost` w `watchlist.toml`).
 Po jego osiągnięciu reszta okazji dostaje etykietę „szacunek AI”. Strona i terminal pokazują
@@ -86,17 +91,19 @@ python -m vinted_screener serve
 Otwiera się strona `http://127.0.0.1:8765`.
 
 1. Klikasz marki albo dopisujesz własną w polu „inna marka”.
-2. Opcjonalnie zawężasz wyszukiwanie: w polu „Tylko rzeczy” wpisujesz np. „bluza”, możesz też ustawić rozmiary, rabat i limit kosztu AI.
+2. Opcjonalnie zawężasz wyszukiwanie: w polu „Tylko rzeczy” wpisujesz np. „bluza”, możesz też ustawić
+   rozmiary, rabat i źródła cen (Ceneo, opisy sprzedających, limit kosztu AI).
 3. Klikasz **Skanuj**.
 
-Okazje pojawiają się na bieżąco, a kliknięcie karty otwiera ogłoszenie na Vinted. Skan jednej
-marki z AI trwa zwykle 1–2 minuty. Strona zapamiętuje Twój wybór. Serwer działa tylko lokalnie
+Okazje pojawiają się na bieżąco, a kliknięcie karty otwiera ogłoszenie na Vinted. Pierwszy skan
+jednej marki trwa ok. 1–2 minuty (zapytania do Ceneo i opisy), kolejne są szybsze dzięki pamięci. Strona zapamiętuje Twój wybór. Serwer działa tylko lokalnie
 i kończysz go przez Ctrl+C w terminalu.
 
 ### Terminal
 
 ```bash
 vinted-screener scan --brand nike --brand "carhartt wip"   # tryb marek → terminal + okazje.html
+vinted-screener scan --brand nike --no-seller --debug      # bez opisów; pokaż zapytania do Vinted i Ceneo
 vinted-screener scan --brand "ralph lauren" --query sweter --max-ai-cost 1
 vinted-screener scan                         # tryb modeli z watchlisty (bez AI)
 vinted-screener scan --size 43 --size L      # tylko Twoje rozmiary
@@ -130,8 +137,11 @@ W `[settings]` ustawisz próg rabatu, stany, liczbę stron na markę (`brand_pag
 
 ## Ograniczenia
 
-- **AI może źle rozpoznać produkt** albo trafić na inną kolorystykę z inną ceną. Dlatego przy każdej
-  cenie jest źródło, a link pozwala to sprawdzić jednym kliknięciem.
+- **Rozpoznanie z tytułu jest przybliżone.** Bez AI tytuł „Nike Air Max” (bez numeru) da ogólny
+  produkt. Ceneo zwraca najniższą cenę nowego produktu, więc może to być cena promocyjna albo innej
+  kolorystyki. Dlatego przy każdej cenie jest źródło z linkiem, do sprawdzenia jednym kliknięciem.
+- **Ceneo i Vinted mogą zmienić stronę albo zablokować zapytania.** Ceneo wtedy wyłącza się do końca
+  skanu z komunikatem, a skan działa dalej na pozostałych źródłach. `--debug` pokazuje, co zwróciło Ceneo.
 - **API Vinted jest nieoficjalne.** Może się zmienić albo zacząć blokować (HTTP 403/429).
   Nie zmniejszaj `delay` i nie skanuj częściej niż co kilka minut. Przy błędach uruchom
   `scan --only dunk --debug`, wtedy widać zapytania i początek odpowiedzi Vinted.
@@ -145,4 +155,4 @@ pip install -e '.[dev]'
 pytest
 ```
 
-Testy nie łączą się ani z Vinted, ani z Claude: oba klienty są podmieniane.
+Testy nie łączą się z Vinted, Ceneo ani Claude: wszystkie klienty są podmieniane.

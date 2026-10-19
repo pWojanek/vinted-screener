@@ -13,7 +13,7 @@ Screener okazji na Vinted (Python 3.11+, CLI + lokalna strona `serve`). Szczegó
 - Komunikaty dla użytkownika, README i komentarze są po polsku. Identyfikatory w kodzie są po angielsku.
 - Procenty w `watchlist.toml` i CLI to liczby 0–99. Wewnątrz kodu to ułamki 0–1.
 - Kwoty są w walucie z `[settings].currency` (domyślnie PLN). Porównania idą na `Listing.total_price`.
-- Tylko `client.py` zna adresy API Vinted. Kształt odpowiedzi parsuje tylko `Listing.from_api`.
+- Tylko `client.py` zna adresy Vinted (`Listing.from_api` parsuje kształt odpowiedzi), a tylko `ceneo.py` adresy Ceneo.
 - Nowy model dodajesz w `watchlist.toml`. Każda pozycja musi mieć `brands`, bo test to wymusza.
 - Zmiana fraz dopasowania wymaga testu w `tests/test_watchlist.py` z realistycznym tytułem.
 
@@ -27,4 +27,7 @@ Screener okazji na Vinted (Python 3.11+, CLI + lokalna strona `serve`). Szczegó
 - Tryb marek używa Claude (`retail.py`, model `claude-opus-5-5`, wybrany przez użytkownika) i kosztuje.
   Nowe wywołania AI muszą iść przez `RetailFinder._create` (fallback, licznik kosztu, limit) i mieć cache w `State`.
   Każda cena retail ma `RetailSource`; nie pokazujemy ceny bez źródła ani linku spoza wyników wyszukiwania.
-- Klucz API: zmienna `ANTHROPIC_API_KEY`; bez niej tryb marek działa tylko na cenach z watchlisty.
+- Klucz API: zmienna `ANTHROPIC_API_KEY`. Bez niej tryb marek działa za darmo: Ceneo, opisy sprzedających,
+  watchlista i mediana Vinted (`brand_screener._reference` ustala kolejność).
+- Ceneo jest z chmury Claude zablokowane, więc parser `ceneo.parse_search` pisany jest bez podglądu strony.
+  Gdy przestanie działać, użytkownik puszcza `scan --brand X --debug`, a debug pokazuje tytuł/fragment strony.

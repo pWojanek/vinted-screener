@@ -75,8 +75,12 @@ class Settings:
     per_page: int = 96
     delay: float = 1.5
     market_ttl_hours: float = 12.0
-    brand_pages: int = 2  # tryb marek: stron po 96 najnowszych ogłoszeń na markę
+    brand_pages: int = 3  # tryb marek: stron po 96 najnowszych ogłoszeń na markę
     max_ai_cost: float = 2.0  # tryb marek: limit kosztu AI na jeden skan, w USD
+    ceneo: bool = True  # tryb marek: ceny sklepowe z Ceneo.pl
+    seller_prices: bool = True  # tryb marek: ceny podane przez sprzedających w opisach
+    max_ceneo_per_brand: int = 25  # nowych zapytań do Ceneo na markę (zapamiętane nie liczą się)
+    max_descriptions_per_brand: int = 10  # opisów ogłoszeń pobieranych na markę
 
     @property
     def site_url(self) -> str:
@@ -224,6 +228,10 @@ def load_watchlist(path: str | Path) -> tuple[Settings, list[WatchItem]]:
         market_ttl_hours=float(raw_settings.get("market_ttl_hours", defaults.market_ttl_hours)),
         brand_pages=int(raw_settings.get("brand_pages", defaults.brand_pages)),
         max_ai_cost=float(raw_settings.get("max_ai_cost", defaults.max_ai_cost)),
+        ceneo=bool(raw_settings.get("ceneo", defaults.ceneo)),
+        seller_prices=bool(raw_settings.get("seller_prices", defaults.seller_prices)),
+        max_ceneo_per_brand=int(raw_settings.get("max_ceneo_per_brand", defaults.max_ceneo_per_brand)),
+        max_descriptions_per_brand=int(raw_settings.get("max_descriptions_per_brand", defaults.max_descriptions_per_brand)),
     )
 
     items = []

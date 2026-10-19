@@ -27,6 +27,7 @@ REJECT_LABELS = {
     "suspicious": "podejrzanie tanie",
     "market": "za drogie vs Vinted",
     "unknown": "nierozpoznany produkt",
+    "noref": "bez ceny odniesienia",
 }
 
 
@@ -71,6 +72,7 @@ class ScanResult:
     funnel: Counter[str] = field(default_factory=Counter)
     ai_cost_usd: float = 0.0  # tryb marek
     ai_searches: int = 0
+    lookups: Counter[str] = field(default_factory=Counter)  # tryb marek: zapytania do Ceneo, pobrane opisy
 
 
 class ScanUnit(Protocol):

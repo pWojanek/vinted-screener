@@ -7,6 +7,7 @@ Vinted blokuje klientów o "nieprzeglądarkowym" odcisku TLS — dlatego curl_cf
 
 from __future__ import annotations
 
+import html
 import random
 import re
 import time
@@ -26,10 +27,42 @@ class VintedError(RuntimeError):
     pass
 
 
-def _default_session() -> Any:
+def browser_session() -> Any:
+    """Sesja HTTP z odciskiem TLS i nagłówkami Chrome (Vinted i Ceneo odrzucają zwykłych klientów)."""
     from curl_cffi import requests
 
     return requests.Session(impersonate="chrome")
+
+
+class Throttle:
+    """Odstęp między zapytaniami do jednego serwisu, z losowym rozrzutem."""
+
+    def __init__(
+        self, delay: float, sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic
+    ) -> None:
+        self.delay = delay
+        self._sleep = sleep
+        self._clock = clock
+        self._last = float("-inf")
+
+    def wait(self) -> None:
+        wait = self._last + self.delay * random.uniform(1.0, 1.5) - self._clock()
+        if wait > 0:
+            self._sleep(wait)
+        self._last = self._clock()
+
+
+_META_RE = re.compile(r"<meta\b[^>]*>", re.IGNORECASE)
+_ATTR_RE = re.compile(r"""([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')""")
+
+
+def _meta_content(page: str, name: str) -> str | None:
+    """Treść <meta property|name=...> niezależnie od kolejności atrybutów."""
+    for tag in _META_RE.findall(page):
+        attrs = {k.lower(): html.unescape(v1 or v2) for k, v1, v2 in _ATTR_RE.findall(tag)}
+        if name in (attrs.get("property"), attrs.get("name")) and attrs.get("content"):
+            return attrs["content"]
+    return None
 
 
 def _snippet(text: str, limit: int = 200) -> str:
@@ -52,21 +85,14 @@ class VintedClient:
         self.api_url = f"https://api.{host}"
         self.delay = delay
         self.max_retries = max_retries
-        self._session = session or _default_session()
+        self._session = session or browser_session()
         self._sleep = sleep
-        self._clock = clock
+        self._throttle = Throttle(delay, sleep, clock).wait
         self._debug = debug or (lambda msg: None)
-        self._last_request = float("-inf")
         self._token: str | None = None
         self._anon_id: str | None = None
         self._csrf: str | None = None
         self._locale = "pl-PL" if host.endswith(".pl") else "en-US"
-
-    def _throttle(self) -> None:
-        wait = self._last_request + self.delay * random.uniform(1.0, 1.5) - self._clock()
-        if wait > 0:
-            self._sleep(wait)
-        self._last_request = self._clock()
 
     def _absorb_cookies(self) -> None:
         """Przejmuje token z ciasteczek sesji i czyści je.
@@ -175,6 +201,21 @@ class VintedClient:
         elif last_error.startswith("HTTP 404"):
             hint = " — Vinted prawdopodobnie zmienił API, uruchom z --debug i zgłoś wynik"
         raise VintedError(f"zapytanie {path} nie powiodło się: {last_error}{hint}")
+
+    def item_description(self, item_id: int) -> str | None:
+        """Opis ogłoszenia z meta og:description jego strony (JSON-owy endpoint szczegółów Vinted blokuje)."""
+        url = f"{self.site_url}/items/{int(item_id)}"
+        self._throttle()
+        headers = {"Cookie": f"{SESSION_COOKIE}={self._token}"} if self._token else {}
+        try:
+            resp = self._session.get(url, headers=headers, timeout=20)
+        except OSError as exc:
+            self._debug(f"GET {url} → {exc}")
+            return None
+        self._absorb_cookies()
+        description = _meta_content(resp.text or "", "og:description") if resp.status_code == 200 else None
+        self._debug(f"GET {url} → HTTP {resp.status_code}, opis: {_snippet(description or 'BRAK', 120)}")
+        return description
 
     def search(
         self,

@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from vinted_screener.brand_screener import BrandScreener
+from vinted_screener.ceneo import CeneoClient, CeneoPrices
 from vinted_screener.client import VintedClient
 from vinted_screener.models import normalize
 from vinted_screener.notify import send_discord
@@ -22,6 +23,9 @@ from vinted_screener.retail import RetailFinder, make_anthropic_client
 from vinted_screener.server import ScanService, serve
 from vinted_screener.state import State
 from vinted_screener.watchlist import Brand, Settings, WatchItem, WatchlistError, load_brands, load_watchlist
+
+
+NO_AI_NOTE = "brak ANTHROPIC_API_KEY — AI wyłączone; ceny z Ceneo, opisów sprzedających i watchlisty (patrz README)"
 
 
 def _percent(value: str) -> float:
@@ -56,6 +60,8 @@ def build_parser() -> argparse.ArgumentParser:
                       help="tryb marek: skanuj wszystkie rzeczy marki, cenę retail ustala AI (można powtarzać)")
     scan.add_argument("--query", default="", metavar="FRAZA", help="tryb marek: dopisz frazę do wyszukiwania, np. bluza")
     scan.add_argument("--max-ai-cost", type=float, metavar="USD", help="tryb marek: limit kosztu AI na skan (domyślnie z watchlisty)")
+    scan.add_argument("--no-ceneo", action="store_true", help="tryb marek: nie szukaj cen na Ceneo.pl")
+    scan.add_argument("--no-seller", action="store_true", help="tryb marek: nie czytaj cen z opisów sprzedających")
 
     parser = argparse.ArgumentParser(
         prog="vinted-screener", description="Szuka na Vinted fajnych rzeczy wystawionych dużo poniżej ceny retail."
@@ -128,13 +134,19 @@ def _make_runner(
     chosen = [known.get(normalize(name)) or Brand.custom(name, settings) for name in args.brand]
     ai_client = make_anthropic_client()
     if ai_client is None:
-        print("brak ANTHROPIC_API_KEY — ceny retail tylko z watchlisty (patrz README)", file=sys.stderr)
+        print(NO_AI_NOTE, file=sys.stderr)
     max_cost = settings.max_ai_cost if args.max_ai_cost is None else args.max_ai_cost
+    ceneo_client = CeneoClient(delay=settings.delay, debug=debug) if settings.ceneo and not args.no_ceneo else None
 
     def run_brands() -> ScanResult:
         # nowy licznik kosztu na każdy skan (w trybie watch: na każdy cykl); zapamiętane ceny zostają w State
         finder = RetailFinder(ai_client, state, max_usd=max_cost, debug=debug) if ai_client else None
-        return BrandScreener(client, settings, finder, items, filters=filters, log=log, debug=debug).screen(chosen, args.query)
+        screener = BrandScreener(
+            client, settings, finder, items, filters=filters, log=log, debug=debug, state=state,
+            ceneo=CeneoPrices(ceneo_client, state, debug=debug) if ceneo_client else None,
+            read_descriptions=settings.seller_prices and not args.no_seller,
+        )
+        return screener.screen(chosen, args.query)
 
     return run_brands
 
@@ -159,6 +171,8 @@ def _summary(result: ScanResult, args: argparse.Namespace) -> str:
         text += f" · {len(result.errors)} błędów"
     if result.ai_cost_usd:
         text += f" · AI: ${result.ai_cost_usd:.2f}, {result.ai_searches} wyszukiwań"
+    if result.lookups:
+        text += f" · Ceneo: {result.lookups['ceneo']} zapytań, opisy: {result.lookups['opisy']}"
     if args.html:
         text += f" · raport: {Path(args.html).resolve()}"
     if funnel := describe_funnel(result.funnel):
@@ -220,9 +234,10 @@ def cmd_serve(args: argparse.Namespace, settings: Settings, items: list[WatchIte
     client = VintedClient(domain=settings.domain, delay=settings.delay, debug=debug)
     ai_client = make_anthropic_client()
     if ai_client is None:
-        print("uwaga: brak ANTHROPIC_API_KEY — AI wyłączone, ceny retail tylko z watchlisty (patrz README)", file=sys.stderr)
+        print(NO_AI_NOTE, file=sys.stderr)
     service = ScanService(
         settings, brands, client, State(args.state), ai_client=ai_client,
+        ceneo_client=CeneoClient(delay=settings.delay, debug=debug),
         watch_items=items, html_path=args.html or None, log=log, debug=debug,
     )
     try:

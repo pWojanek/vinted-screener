@@ -14,6 +14,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from vinted_screener.brand_screener import BrandScreener
+from vinted_screener.ceneo import CeneoClient, CeneoPrices
 from vinted_screener.client import VintedClient
 from vinted_screener.models import normalize
 from vinted_screener.report import deal_to_dict, render_page, sort_deals, write_html
@@ -26,8 +27,9 @@ MAX_BODY = 64 * 1024
 ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
 MAX_BRANDS = 40
 MAX_AI_COST = 50.0  # górna granica limitu z formularza, w USD
-# orientacyjny czas na markę: 2 strony z Vinted + rozpoznanie i wyszukiwanie cen przez AI
-SECONDS_PER_BRAND_AI, SECONDS_PER_BRAND_PLAIN = 90, 8
+# orientacyjny czas na markę przy pierwszym skanie (potem krócej, bo ceny są zapamiętane):
+# strony z Vinted + Ceneo + opisy, a z AI dodatkowo rozpoznanie i wyszukiwanie cen
+SECONDS_PER_BRAND_AI, SECONDS_PER_BRAND_PLAIN = 100, 60
 
 
 class ScanService:
@@ -40,6 +42,7 @@ class ScanService:
         client: VintedClient,
         state: State,
         ai_client: Any = None,
+        ceneo_client: CeneoClient | None = None,
         watch_items: list[WatchItem] = (),
         html_path: str | None = None,
         log: Callable[[str], None] = lambda msg: None,
@@ -50,6 +53,7 @@ class ScanService:
         self.client = client
         self.state = state
         self.ai_client = ai_client
+        self.ceneo_client = ceneo_client
         self.watch_items = list(watch_items)
         self.html_path = html_path
         self.log = log
@@ -63,7 +67,7 @@ class ScanService:
     def _empty_job() -> dict[str, Any]:
         return {
             "running": False, "done": 0, "total": 0, "current": None, "deals": [], "errors": {}, "funnel": "",
-            "listings_seen": 0, "ai_cost_usd": 0.0, "ai_searches": 0, "started_at": None, "finished_at": None,
+            "listings_seen": 0, "ai_cost_usd": 0.0, "ai_searches": 0, "lookups": {}, "started_at": None, "finished_at": None,
         }
 
     def watchlist(self) -> dict[str, Any]:
@@ -74,6 +78,9 @@ class ScanService:
             "ai_model": MODEL if ai else None,
             "max_ai_cost": self.settings.max_ai_cost,
             "min_discount": round(self.settings.min_discount * 100),
+            "ceneo_available": self.ceneo_client is not None,
+            "ceneo_default": self.settings.ceneo,
+            "seller_default": self.settings.seller_prices,
             "seconds_per_brand": SECONDS_PER_BRAND_AI if ai else SECONDS_PER_BRAND_PLAIN,
             "brands": [b.name for b in self.brands.values()],
         }
@@ -109,6 +116,10 @@ class ScanService:
             sizes=tuple(sizes),
             show_suspicious=bool(request.get("show_suspicious")),
         )
+        sources = {
+            "ceneo": bool(request.get("ceneo", self.settings.ceneo)) and self.ceneo_client is not None,
+            "seller": bool(request.get("seller", self.settings.seller_prices)),
+        }
         brands = list({normalize(n): self._brand(n) for n in names}.values())
         with self._lock:
             if self._job["running"]:
@@ -116,7 +127,9 @@ class ScanService:
             self._job = {**self._empty_job(), "running": True, "total": len(brands), "current": brands[0].name,
                          "started_at": datetime.now(timezone.utc).isoformat()}
         self._stop.clear()
-        self._thread = threading.Thread(target=self._run, args=(brands, query.strip(), filters, float(max_cost)), daemon=True)
+        self._thread = threading.Thread(
+            target=self._run, args=(brands, query.strip(), filters, float(max_cost), sources), daemon=True
+        )
         self._thread.start()
         return 202, {"started": len(brands)}
 
@@ -131,12 +144,15 @@ class ScanService:
             "listings_seen": result.listings_seen,
             "ai_cost_usd": result.ai_cost_usd,
             "ai_searches": result.ai_searches,
+            "lookups": dict(result.lookups),
         }
 
-    def _run(self, brands: list[Brand], query: str, filters: Filters, max_cost: float) -> None:
+    def _run(self, brands: list[Brand], query: str, filters: Filters, max_cost: float, sources: dict[str, bool]) -> None:
         finder = RetailFinder(self.ai_client, self.state, max_usd=max_cost, debug=self.debug) if self.ai_client else None
+        ceneo = CeneoPrices(self.ceneo_client, self.state, debug=self.debug) if sources["ceneo"] else None
         screener = BrandScreener(
-            self.client, self.settings, finder, self.watch_items, filters=filters, log=self.log, debug=self.debug
+            self.client, self.settings, finder, self.watch_items, filters=filters, log=self.log, debug=self.debug,
+            ceneo=ceneo, read_descriptions=sources["seller"], state=self.state,
         )
 
         def on_brand(i: int, brand: Brand, result: ScanResult) -> None:

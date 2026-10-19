@@ -179,3 +179,19 @@ def test_debug_log_shows_requests():
     VintedClient(delay=0, session=session, sleep=lambda s: None, debug=lines.append).search("x")
     assert any("anon_id=anon-1" in l for l in lines)
     assert any("svc-catalogue/items" in l and "HTTP 200" in l for l in lines)
+
+
+def test_item_description_from_og_meta():
+    page = '<head><meta content="Nowe, cena w sklepie 499 zł &amp; metki" property="og:description"></head>'
+    session = FakeSession([FakeResponse(200, text=page)])
+    client = VintedClient(delay=0, session=session, sleep=lambda s: None)
+    client._token = "TOKEN1"
+    assert client.item_description(123) == "Nowe, cena w sklepie 499 zł & metki"
+    assert session.calls[-1]["url"] == "https://www.vinted.pl/items/123"
+    assert session.calls[-1]["headers"] == {"Cookie": "access_token_web=TOKEN1"}
+
+
+@pytest.mark.parametrize("response", [FakeResponse(404, text=""), FakeResponse(200, text="<head></head>"), OSError("reset")])
+def test_item_description_missing_or_blocked(response):
+    client = VintedClient(delay=0, session=FakeSession([response]), sleep=lambda s: None)
+    assert client.item_description(1) is None

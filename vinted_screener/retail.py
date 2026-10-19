@@ -22,7 +22,7 @@ from urllib.parse import urlsplit
 
 import anthropic
 
-from vinted_screener.models import Listing, RetailSource, normalize
+from vinted_screener.models import Listing, RetailPrice, RetailSource, normalize
 from vinted_screener.state import State
 
 MODEL = "claude-opus-5-5"
@@ -139,12 +139,6 @@ class Identification:
     @property
     def product_key(self) -> str | None:
         return normalize(self.product) if self.product else None
-
-
-@dataclass(frozen=True)
-class RetailPrice:
-    price: float
-    source: RetailSource
 
 
 class CostMeter:

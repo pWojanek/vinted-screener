@@ -1,8 +1,8 @@
 # Watchlista screenera okazji na Vinted.
 #
 # Dwa tryby:
-#   • po markach ([[brand]], na dole pliku) — skanuje wszystkie rzeczy marki, cenę retail ustala AI
-#     i podaje źródło (link do sklepu); wymaga klucza ANTHROPIC_API_KEY,
+#   • po markach ([[brand]], na dole pliku) — skanuje wszystkie rzeczy marki, a cenę odniesienia bierze
+#     z Ceneo, z opisu sprzedającego albo z mediany Vinted (za darmo); z kluczem ANTHROPIC_API_KEY także z AI,
 #   • po modelach ([[item]]) — ręczna lista modeli z cenami; w trybie marek służy też jako darmowy szacunek.
 #
 # Ceny "retail" to ORIENTACYJNE regularne ceny w PLN (oficjalne sklepy marek, popularne kolorystyki).
@@ -32,8 +32,12 @@ sizes = []                 # np. ["42", "42.5", "M"] — filtruje po rozmiarze; 
 pages = 1                  # stron po 96 najnowszych ogłoszeń na model
 delay = 1.5                # sekundy między zapytaniami (nie zmniejszaj, Vinted blokuje)
 market_ttl_hours = 12      # jak długo trzymać w cache medianę cen z Vinted
-brand_pages = 2            # tryb marek: stron po 96 najnowszych ogłoszeń na markę
+brand_pages = 3            # tryb marek: stron po 96 najnowszych ogłoszeń na markę
 max_ai_cost = 2.0          # tryb marek: limit kosztu AI na jeden skan, w USD (strona pozwala go zmienić)
+ceneo = true               # tryb marek: szukaj cen nowych produktów na Ceneo.pl (za darmo)
+seller_prices = true       # tryb marek: czytaj ceny sklepowe z opisów sprzedających (za darmo)
+max_ceneo_per_brand = 25   # nowych zapytań do Ceneo na markę; zapamiętane ceny się nie liczą
+max_descriptions_per_brand = 10  # opisów ogłoszeń pobieranych na markę
 
 # ─── Sneakersy ────────────────────────────────────────────────────────────────
 

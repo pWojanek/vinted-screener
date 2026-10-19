@@ -13,13 +13,19 @@ NIKE = Brand(name="Nike", query="nike", aliases=("Nike",), suspicious_below=0.2)
 
 
 class FakeVinted:
-    def __init__(self, items):
+    def __init__(self, items, descriptions=None):
         self.items = items
+        self.descriptions = descriptions or {}
         self.calls = []
+        self.described: list[int] = []
 
     def search(self, text, **kwargs):
         self.calls.append({"text": text, **kwargs})
         return self.items
+
+    def item_description(self, item_id):
+        self.described.append(item_id)
+        return self.descriptions.get(item_id)
 
 
 class FakeFinder:
@@ -86,19 +92,19 @@ def test_watchlist_match_skips_identification_and_is_fallback_source():
     assert deals[0].retail == 500 and deals[0].retail_source.kind == "watchlist"
 
 
-def test_unknown_and_low_confidence_products_are_skipped():
-    vinted = FakeVinted([raw_item("bluza nike", 50, id=1), raw_item("coś", 50, id=2)])
-    finder = FakeFinder({1: ident("Nike bluza", 300, confidence="low")})
+def test_generic_and_low_confidence_products_without_reference_are_skipped():
+    vinted = FakeVinted([raw_item("bluza nike", 50, id=1), raw_item("coś", 50, id=2), raw_item("Nike x", 50, id=3)])
+    finder = FakeFinder({1: ident("Nike bluza", 300, confidence="low"), 3: ident(None, None)})
     deals, funnel = BrandScreener(vinted, SETTINGS, finder).screen_brand(NIKE)
-    assert deals == [] and funnel["unknown"] == 2
-    assert "nierozpoznany produkt 2" in describe_funnel(funnel)
+    assert deals == [] and funnel["noref"] == 2 and funnel["unknown"] == 1
+    assert "bez ceny odniesienia 2" in describe_funnel(funnel)
 
 
 def test_without_ai_only_watchlist_prices_are_used():
     dunk = make_item(name="Nike Dunk Low", retail=500)
     vinted = FakeVinted([raw_item("Nike Dunk Low", 200, id=1), raw_item("Nike Air Max 90", 100, id=2)])
     deals, funnel = BrandScreener(vinted, SETTINGS, None, watch_items=[dunk]).screen_brand(NIKE)
-    assert [d.model for d in deals] == ["Nike Dunk Low"] and funnel["unknown"] == 1
+    assert [d.model for d in deals] == ["Nike Dunk Low"] and funnel["noref"] == 1
 
 
 def test_bad_api_key_disables_ai_but_scan_continues():
@@ -139,3 +145,106 @@ def test_scan_reports_ai_cost():
     finder.cost.usd, finder.cost.searches = 0.42, 3
     result = BrandScreener(FakeVinted([raw_item("Nike dunk", 200, id=1)]), SETTINGS, finder).screen([NIKE])
     assert result.ai_cost_usd == 0.42 and result.ai_searches == 3 and len(result.deals) == 1
+
+
+class FakeCeneo:
+    """Udaje CeneoPrices: ceny z gotowego słownika (klucz = nazwa produktu)."""
+
+    def __init__(self, prices=None):
+        self.prices = prices or {}
+        self.lookups = 0
+        self.asked: list[tuple[str, list[str]]] = []
+        self.disabled_reason = None
+
+    def price_for(self, name, tokens):
+        self.lookups += 1
+        self.asked.append((name, tokens))
+        return self.prices.get(name)
+
+
+def ceneo_price(price, product="Nike Dunk Low Retro DD1391"):
+    return RetailPrice(price, RetailSource(kind="ceneo", label="Ceneo", url="https://www.ceneo.pl/1", product=product,
+                                           note="najniższa cena nowego w sklepach"))
+
+
+def test_free_mode_uses_ceneo_price_with_link():
+    vinted = FakeVinted([raw_item("Nike Dunk Low Retro Panda 42", 150, id=1)])
+    ceneo = FakeCeneo({"Nike Dunk Low Retro": ceneo_price(479)})
+    deals, _ = BrandScreener(vinted, SETTINGS, None, ceneo=ceneo).screen_brand(NIKE)
+    assert ceneo.asked == [("Nike Dunk Low Retro", ["dunk", "low", "retro"])]
+    assert deals[0].retail == 479 and deals[0].retail_source.kind == "ceneo" and deals[0].retail_source.url
+
+
+def test_ceneo_beats_watchlist_and_verified_ai_beats_ceneo():
+    dunk = make_item(name="Nike Dunk Low", retail=500)
+    vinted = FakeVinted([raw_item("Nike Dunk Low Panda", 150, id=1)])
+    ceneo = FakeCeneo({"Nike Dunk Low": ceneo_price(450)})
+    deals, _ = BrandScreener(vinted, SETTINGS, None, watch_items=[dunk], ceneo=ceneo).screen_brand(NIKE)
+    assert deals[0].retail_source.kind == "ceneo"
+
+    finder = FakeFinder(prices={"Nike Dunk Low": web(499)})
+    ceneo = FakeCeneo({"Nike Dunk Low": ceneo_price(450)})
+    deals, _ = BrandScreener(vinted, SETTINGS, finder, watch_items=[dunk], ceneo=ceneo).screen_brand(NIKE)
+    assert deals[0].retail_source.kind == "web" and ceneo.asked == [], "potwierdzona cena z AI — Ceneo niepotrzebne"
+
+
+def test_ceneo_lookups_are_capped_and_skip_hopeless_products():
+    import dataclasses
+    settings = dataclasses.replace(SETTINGS, max_ceneo_per_brand=1)
+    vinted = FakeVinted([raw_item("Nike Air Max 90", 150, id=1), raw_item("Nike Air Max 90", 160, id=2),
+                         raw_item("Nike Blazer Mid", 150, id=3), raw_item("Nike Dunk Low", 480, id=4)])
+    ceneo = FakeCeneo()
+    BrandScreener(vinted, settings, None, ceneo=ceneo).screen_brand(NIKE)
+    assert [name for name, _ in ceneo.asked] == ["Nike Air Max 90"], "najpierw produkt z największą liczbą ofert"
+
+    dunk = make_item(name="Nike Dunk Low", retail=500)
+    ceneo = FakeCeneo()
+    BrandScreener(FakeVinted([raw_item("Nike Dunk Low", 480, id=4)]), SETTINGS, None, [dunk], ceneo=ceneo).screen_brand(NIKE)
+    assert ceneo.asked == [], "480 zł przy retailu 500 zł nie może być okazją — szkoda zapytania"
+
+
+def test_seller_declared_price_from_description_is_cached(tmp_path):
+    from vinted_screener.state import State
+    state = State(tmp_path / "s.json")
+    vinted = FakeVinted([raw_item("Bluza Nike nowa", 150, id=1), raw_item("Bluza Nike", 140, id=2, status="Bardzo dobry")],
+                        descriptions={1: "Nowa z metką, cena w sklepie 449 zł. Wysyłka OLX"})
+    screener = BrandScreener(vinted, SETTINGS, None, read_descriptions=True, state=state)
+    deals, funnel = screener.screen_brand(NIKE)
+    assert vinted.described == [1, 2], "najpierw nowe rzeczy"
+    deal = deals[0]
+    assert deal.listing.id == 1 and deal.retail == 449 and deal.model == "Nike — bluzy i swetry"
+    assert deal.retail_source.kind == "seller" and "cena w sklepie 449 zł" in deal.retail_source.note
+    assert funnel["noref"] == 1 and screener.lookups["opisy"] == 2
+
+    again = FakeVinted(vinted.items)
+    BrandScreener(again, SETTINGS, None, read_descriptions=True, state=state).screen_brand(NIKE)
+    assert again.described == [], "opisy z pamięci"
+
+
+def test_description_fetches_are_capped():
+    import dataclasses
+    settings = dataclasses.replace(SETTINGS, max_descriptions_per_brand=2)
+    vinted = FakeVinted([raw_item(f"Bluza Nike {i}", 100, id=i) for i in range(1, 6)])
+    BrandScreener(vinted, settings, None, read_descriptions=True).screen_brand(NIKE)
+    assert len(vinted.described) == 2
+
+
+def test_market_median_is_last_resort_reference():
+    prices = [90, 300, 310, 320, 330, 340, 350]
+    vinted = FakeVinted([raw_item("Nike Air Max 90 nowe", p, id=i + 1) for i, p in enumerate(prices)])
+    deals, funnel = BrandScreener(vinted, SETTINGS, None).screen_brand(NIKE)
+    assert [d.listing.id for d in deals] == [1]
+    source = deals[0].retail_source
+    assert source.kind == "market" and source.label == "mediana Vinted (7 ofert)" and "brak ceny retail" in source.note
+    assert funnel["price"] == 6
+
+    deals, funnel = BrandScreener(FakeVinted(vinted.items[:5]), SETTINGS, None).screen_brand(NIKE)
+    assert deals == [] and funnel["noref"] == 5, "z 5 ofert mediana to za mało, żeby była jedynym odniesieniem"
+
+
+def test_scan_reports_lookups_and_ceneo_block():
+    ceneo = FakeCeneo()
+    ceneo.disabled_reason = "Ceneo blokuje zapytania (HTTP 403)"
+    result = BrandScreener(FakeVinted([raw_item("Nike Air Max 90", 150, id=1)]), SETTINGS, None, ceneo=ceneo).screen([NIKE])
+    assert "blokuje" in result.errors["Ceneo"]
+    assert result.lookups["ceneo"] == 1
