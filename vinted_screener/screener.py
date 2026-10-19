@@ -70,9 +70,9 @@ class ScanResult:
     scanned_items: int = 0
     listings_seen: int = 0
     funnel: Counter[str] = field(default_factory=Counter)
-    ai_cost_usd: float = 0.0  # tryb marek
+    ai_cost_usd: float = 0.0  # wyszukiwarka
     ai_searches: int = 0
-    lookups: Counter[str] = field(default_factory=Counter)  # tryb marek: zapytania do Ceneo, pobrane opisy
+    lookups: Counter[str] = field(default_factory=Counter)  # wyszukiwarka: zapytania do Ceneo, pobrane opisy
 
 
 class ScanUnit(Protocol):
@@ -116,7 +116,7 @@ def run_scan(
     on_item: ItemCallback | None = None,
     should_stop: Callable[[], bool] | None = None,
 ) -> ScanResult:
-    """Pętla skanu wspólna dla modeli i marek: postęp, zatrzymanie, przerwanie po serii błędów Vinted."""
+    """Pętla skanu wspólna dla modeli i fraz wyszukiwarki: postęp, zatrzymanie, przerwanie po serii błędów Vinted."""
     result = ScanResult()
     consecutive_errors = 0
     for i, unit in enumerate(units, start=1):

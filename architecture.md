@@ -1,13 +1,15 @@
 # Architektura
 
 ```
-watchlist.toml ──► watchlist.py ──► WatchItem ([[item]]: model + retail) i Brand ([[brand]])
+watchlist.toml ──► watchlist.py ──► WatchItem ([[item]]: model + retail) i Brand ([[brand]]: znane marki)
 
-Tryb marek (serve, scan --brand):  brand_screener.py — dla każdej marki:
-   1. client.search(marka [+ fraza], stany, brand_pages)             → ogłoszenia marki
-   2. parse_listings + Brand.matches (marka, globalne wykluczenia) + size_matches
-   3. produkt: WatchItem.matches → watchlista; jest AI → RetailFinder.identify; inaczej products.product_tokens
-      (słowa modelu z tytułu); grupy (kategoria, 2 słowa) → mediana Vinted z tego skanu
+Wyszukiwarka (serve, scan --search):  search_screener.py — dla każdej frazy:
+   0. Search.parse: znane marki we frazie (find_brands) → zapytanie Vinted (vinted_query) i zakres marek
+   1. client.search(Search.query, stany, search_pages)                → ogłoszenia
+   2. parse_listings + akceptacja: marka z frazy (Brand.matches) albo, przy samym typie rzeczy, znana marka
+      / marka wpisana we frazę / każda (only_known_brands=False) + globalne wykluczenia + size_matches
+   3. produkt: marka ogłoszenia (_brand_of); WatchItem.matches → watchlista; jest AI → RetailFinder.identify;
+      inaczej products.product_tokens (słowa modelu z tytułu); grupy (marka, kategoria, 2 słowa) → mediana Vinted
    4. ceny: AI web (kandydaci) → ceneo.CeneoPrices (produkty bez ceny, limit) → opisy sprzedających
       (client.item_description + products.declared_retail, limit) → watchlista / szacunek AI / mediana
    5. Deal(model, kategoria, retail, RetailSource, rabat, mediana grupy, score)
@@ -24,16 +26,16 @@ Oba tryby: screener.run_scan (postęp, zatrzymanie, przerwanie po błędach Vint
 |---|---|
 | `client.py` | HTTP do Vinted, a także wspólne `browser_session()` i `Throttle` dla innych serwisów. `item_description` czyta `og:description` ze strony ogłoszenia. Wyszukiwanie to `https://api.<domena>/svc-catalogue/items` (od 09.2026; stare `www…/api/v2/catalog/items` daje 404). Tożsamość ze strony głównej: ciasteczko `access_token_web` + nagłówek `X-Anon-Id` (+ `<html lang>` jako `Locale`). Token wysyłany jawnie w `Cookie`, słoik curl_cffi czyszczony, żeby nie było dwóch nagłówków. Throttling, retry 429/5xx, odświeżenie sesji przy 401/403, paginacja, `--debug`. Jedyne miejsce, które zna URL-e API. |
 | `retail.py` | AI (Claude Opus 5.5, `client.beta.messages.create` z `fallbacks="default"`). `identify`: partie po 40 tytułów, odpowiedź w JSON (`output_config.format`, krótkie klucze `i/p/c/r/q`), cache 14 dni. `lookup`: `web_search_20260209` (max 4, lokalizacja PL) + narzędzie `report_retail_price` (`strict`), obsługa `pause_turn`, cache 30 dni (brak ceny 7 dni). `verify_source` przyjmuje link tylko wtedy, gdy ten adres albo domena była w wynikach wyszukiwania. `CostMeter` liczy USD z `usage`. Limit `max_usd` na skan. Zły klucz daje `RetailAIError`, a inne błędy SDK zwracają `None` dla jednego produktu. |
-| `brand_screener.py` | Tryb marek, kroki w schemacie wyżej. `_reference` wybiera źródło: AI-web, potem Ceneo, watchlista, opis sprzedającego, szacunek AI, a na końcu mediana Vinted (min. 6 ofert). Limity zapytań na markę są w ustawieniach. Po `RetailAIError` wyłącza AI, a po blokadzie Ceneo wyłącza Ceneo, i w obu przypadkach jedzie dalej. |
-| `products.py` | Bez AI: `product_tokens` (słowa modelu bez marki, rozmiarów, kolorów, stanu i wypełniaczy; numery modeli zostają), `is_specific`, `guess_category`, `declared_retail` („cena w sklepie 499 zł” → kwota + cytat, tylko wyraźnie powyżej ceny oferty). |
+| `search_screener.py` | Wyszukiwarka, kroki w schemacie wyżej. `Search.parse` rozpoznaje znane marki we frazie po nazwie i `aliases`, porównując bez spacji i interpunkcji („cp company” = „C.P. Company”). Krótkie nazwy (≤2 znaki, „On”) liczą się tylko jako cała fraza. Przy nakładaniu wygrywa dłuższa nazwa, a kilka różnych marek („Nike Air Jordan 1”) wchodzi razem. Nazwa marki w zapytaniu zmienia się w `Brand.query`, chyba że dłuższa nazwa ją zawiera („Air Jordan”). Marka ogłoszenia ustala nazwę produktu, zapytanie Ceneo i próg podejrzanej ceny. `_reference` wybiera źródło: AI-web, potem Ceneo, watchlista, opis sprzedającego, szacunek AI, a na końcu mediana Vinted (min. 6 ofert). Limity zapytań na frazę są w ustawieniach. Po `RetailAIError` wyłącza AI, a po blokadzie Ceneo wyłącza Ceneo, i w obu przypadkach jedzie dalej. |
+| `products.py` | Bez AI: `product_tokens` (słowa modelu bez marki, rozmiarów, kolorów, stanu, wypełniaczy i cech typu „puchowa”, „z kapturem”; numery modeli zostają), `is_specific`, `guess_category`, `declared_retail` („cena w sklepie 499 zł” → kwota + cytat, tylko wyraźnie powyżej ceny oferty). |
 | `ceneo.py` | `CeneoClient.search` (`/;szukaj-…`, curl_cffi, `Throttle`), `parse_search` (najpierw JSON-LD, potem kafelki `data-productid` + `value`/`penny`), `CeneoPrices` (ścisłe dopasowanie słów modelu, cache 7 dni / brak 3 dni, wyłączenie po 403/429). Jedyne miejsce, które zna adresy Ceneo. |
 | `models.py` | `Listing.from_api`: parsuje oba formaty ceny (obiekt i string). Markę, stan i rozmiar bierze z `item_box.accessibility_label` (od 09.2026 API nie zwraca `brand_title`/`status`/`size_title`), a stary kształt nadal obsługuje. Do tego `Deal` (model, kategoria, retail i `RetailSource`: skąd jest cena), `normalize()` (bez polskich znaków i interpunkcji) i wagi stanów. |
-| `watchlist.py` | Wczytanie i walidacja TOML (`load_watchlist`, `load_brands`), DSL fraz (`a\|b`, `prefix*`, sklejanie słów), `brand_in` (dopasowanie marki z prefiksem), `globally_excluded` (repliki, pudełka, dzieci…), `size_matches`, `Brand.custom` dla marek wpisanych na stronie. |
+| `watchlist.py` | Wczytanie i walidacja TOML (`load_watchlist`, `load_brands`), DSL fraz (`a\|b`, `prefix*`, sklejanie słów), `brand_in` (dopasowanie marki z prefiksem), `globally_excluded` (repliki, pudełka, dzieci…), `size_matches`, `Brand.owns` (czy marka ogłoszenia to ta marka), `Brand.custom` dla marek spoza listy. Stare nazwy ustawień (`brand_pages`, `max_*_per_brand`) nadal są czytane. |
 | `screener.py` | Logika okazji: okno cenowe, filtry, mediana rynkowa, `deal_score`. Liczy lejek odrzuceń (`ScanResult.funnel`, pokazywany w podsumowaniu) i w `--debug` wypisuje pola oraz przykłady surowych ogłoszeń. Klient wstrzykiwany, więc testy go podmieniają. |
 | `state.py` | `.vinted-screener/state.json`: widziane ID (tryb watch, TTL 14 dni) i kubełki cache z TTL (`market`, `identify`, `retail`, `ceneo`, `description`), bezpieczne wątkowo. |
 | `report.py` | Wypisywanie w terminalu, JSON i `render_page()`, czyli `page.html` z wstrzykniętym `BOOT`. |
-| `page.html` | Jedna strona w dwóch trybach. `{"mode": "static", deals, meta}` to raport `okazje.html`, a `{"mode": "app"}` to panel wyboru marek w `serve` (chipy, własne marki, fraza, limit kosztu AI), który odpytuje `/api/status` co sekundę. Karta ma osobny link do ogłoszenia i linię „retail wg …” z linkiem do źródła; zagnieżdżony `<a>` byłby niepoprawny. Wybór i opcje pamięta `localStorage`. |
-| `server.py` | `serve`: `ThreadingHTTPServer` tylko na 127.0.0.1. `ScanService` puszcza jeden skan marek naraz w wątku, z nowym `RetailFinder` na każdy skan (limit kosztu z formularza), i aktualizuje stan po każdej marce, razem z kosztem AI. Endpointy: `GET /api/watchlist` (marki, czy AI włączone), `GET /api/status`, `POST /api/scan` (`brands`, `query`, `sizes`, `min_discount`, `max_ai_cost`, `show_suspicious`), `POST /api/stop`. Obce nagłówki `Host` dostają 403, a POST bez JSON dostaje 415 (ochrona przed DNS rebinding i CSRF). |
+| `page.html` | Jedna strona w dwóch trybach. `{"mode": "static", deals, meta}` to raport `okazje.html`, a `{"mode": "app"}` to wyszukiwarka w `serve`: pole z podpowiedziami (`<datalist>` liczony dla frazy po ostatnim przecinku, z marek, typów i „marka + typ”), ostatnie frazy jako chipy i opcje. Strona odpytuje `/api/status` co sekundę i pokazuje, jak każda fraza została zrozumiana. Karta ma osobny link do ogłoszenia i linię „retail wg …” z linkiem do źródła; zagnieżdżony `<a>` byłby niepoprawny. Frazy, ostatnie wyszukiwania i opcje pamięta `localStorage`. |
+| `server.py` | `serve`: `ThreadingHTTPServer` tylko na 127.0.0.1. `ScanService` puszcza jeden skan naraz w wątku, z nowym `RetailFinder` na każdy skan (limit kosztu z formularza), i aktualizuje stan po każdej frazie, razem z kosztem AI. Endpointy: `GET /api/config` (znane marki i typy do podpowiedzi, czy AI włączone), `GET /api/status` (z `searches`: jak zrozumiano frazy), `POST /api/scan` (`queries` — najwyżej 10 po 80 znaków, `only_known_brands`, `sizes`, `min_discount`, `max_ai_cost`, `show_suspicious`, `ceneo`, `seller`), `POST /api/stop`. Obce nagłówki `Host` dostają 403, a POST bez JSON dostaje 415 (ochrona przed DNS rebinding i CSRF). |
 | `notify.py` | Payloady Discorda (maks. 10 embedów na wiadomość). |
 
 ## Zasady
@@ -46,6 +48,7 @@ Oba tryby: screener.run_scan (postęp, zatrzymanie, przerwanie po błędach Vint
   gdyby API zignorowało filtr.
 - **Link do ogłoszenia budujemy z ID** (`<site_url>/items/<id>`), bo pole `url` z API prowadziło w złe miejsce.
 - **Źródło ceny jest zawsze jawne:** `RetailSource.kind` to `web`, `ceneo`, `watchlist`, `seller`, `estimate` albo `market`. `estimate` i `market` to przybliżenia: na stronie są pomarańczowe, z `~` przy cenie. Linku spoza wyników wyszukiwania AI nie pokazujemy.
-- **Darmowe źródła są domyślne:** AI to dodatek. Bez `ANTHROPIC_API_KEY` tryb marek działa na Ceneo, opisach, watchliście i medianie.
+- **Darmowe źródła są domyślne:** AI to dodatek. Bez `ANTHROPIC_API_KEY` wyszukiwarka działa na Ceneo, opisach, watchliście i medianie.
+- **Sam typ rzeczy bierze domyślnie tylko znane marki:** bez marki nie ma ceny sklepowej, a no-name'y zasypałyby wyniki medianami. Ogłoszenia bez marki odpadają zawsze.
 - **Koszt AI jest ograniczony:** AI dostaje tylko to, czego nie ma w cache. Najpierw tanie rozpoznanie partiami, wyszukiwarka tylko dla kandydatów, a po przekroczeniu `max_usd` nie ma nowych wywołań.
 - **Brak sieci w testach:** `tests/conftest.py::raw_item` odwzorowuje kształt odpowiedzi API Vinted, a `tests/test_retail.py::FakeAnthropic` udaje klienta Claude (`text_response`, `search_response`).

@@ -1,9 +1,10 @@
 # Watchlista screenera okazji na Vinted.
 #
 # Dwa tryby:
-#   • po markach ([[brand]], na dole pliku) — skanuje wszystkie rzeczy marki, a cenę odniesienia bierze
-#     z Ceneo, z opisu sprzedającego albo z mediany Vinted (za darmo); z kluczem ANTHROPIC_API_KEY także z AI,
-#   • po modelach ([[item]]) — ręczna lista modeli z cenami; w trybie marek służy też jako darmowy szacunek.
+#   • wyszukiwarka (strona serve, scan --search) — wpisujesz markę albo typ rzeczy ("Nike bluza", "kurtka puchowa"),
+#     a cenę odniesienia screener bierze z Ceneo, z opisu sprzedającego albo z mediany Vinted (za darmo);
+#     z kluczem ANTHROPIC_API_KEY także z AI. Znane marki ([[brand]], na dole pliku) rozpoznaje we frazie,
+#   • po modelach ([[item]]) — ręczna lista modeli z cenami; w wyszukiwarce służy też jako darmowy szacunek.
 #
 # Ceny "retail" to ORIENTACYJNE regularne ceny w PLN (oficjalne sklepy marek, popularne kolorystyki).
 # Różnią się między kolorystykami i sezonami — popraw je, jeśli znasz aktualne.
@@ -32,12 +33,12 @@ sizes = []                 # np. ["42", "42.5", "M"] — filtruje po rozmiarze; 
 pages = 1                  # stron po 96 najnowszych ogłoszeń na model
 delay = 1.5                # sekundy między zapytaniami (nie zmniejszaj, Vinted blokuje)
 market_ttl_hours = 12      # jak długo trzymać w cache medianę cen z Vinted
-brand_pages = 3            # tryb marek: stron po 96 najnowszych ogłoszeń na markę
-max_ai_cost = 2.0          # tryb marek: limit kosztu AI na jeden skan, w USD (strona pozwala go zmienić)
-ceneo = true               # tryb marek: szukaj cen nowych produktów na Ceneo.pl (za darmo)
-seller_prices = true       # tryb marek: czytaj ceny sklepowe z opisów sprzedających (za darmo)
-max_ceneo_per_brand = 25   # nowych zapytań do Ceneo na markę; zapamiętane ceny się nie liczą
-max_descriptions_per_brand = 10  # opisów ogłoszeń pobieranych na markę
+search_pages = 3           # wyszukiwarka: stron po 96 najnowszych ogłoszeń na frazę
+max_ai_cost = 2.0          # wyszukiwarka: limit kosztu AI na jeden skan, w USD (strona pozwala go zmienić)
+ceneo = true               # wyszukiwarka: szukaj cen nowych produktów na Ceneo.pl (za darmo)
+seller_prices = true       # wyszukiwarka: czytaj ceny sklepowe z opisów sprzedających (za darmo)
+max_ceneo_per_search = 25  # nowych zapytań do Ceneo na frazę; zapamiętane ceny się nie liczą
+max_descriptions_per_search = 10  # opisów ogłoszeń pobieranych na frazę
 
 # ─── Sneakersy ────────────────────────────────────────────────────────────────
 
@@ -464,10 +465,13 @@ brands = ["Ray-Ban"]
 require = ["wayfarer"]
 suspicious_below = 25
 
-# ─── Marki (tryb marek) ───────────────────────────────────────────────────────
-# name             – nazwa na stronie
-# query            – (opcjonalnie) fraza w wyszukiwarce Vinted, domyślnie nazwa małymi literami
-# aliases          – (opcjonalnie) jak marka nazywa się w ogłoszeniach; "Nike" pasuje też do "Nike SB"
+# ─── Znane marki (wyszukiwarka) ───────────────────────────────────────────────
+# Marka wpisana w wyszukiwarkę ("Nike bluza") zawęża wyniki do niej. Przy samym typie rzeczy ("kurtka puchowa")
+# domyślnie brane są tylko marki z tej listy. Nazwy podpowiada też pole wyszukiwania na stronie.
+# name             – nazwa w podpowiedziach i wynikach
+# query            – (opcjonalnie) jak wpisać markę w wyszukiwarkę Vinted, domyślnie nazwa małymi literami
+# aliases          – (opcjonalnie) inne nazwy marki we frazie i w ogłoszeniach; "Nike" pasuje też do "Nike SB",
+#                    a krótkie, np. "On", rozpoznawane są tylko jako cała fraza
 # suspicious_below – (opcjonalnie) cena poniżej X% retailu = podejrzana; wyżej dla często podrabianych marek
 
 [[brand]]
@@ -522,6 +526,7 @@ name = "Birkenstock"
 
 [[brand]]
 name = "The North Face"
+aliases = ["The North Face", "North Face", "TNF"]
 suspicious_below = 25
 
 [[brand]]
@@ -540,6 +545,7 @@ name = "Napapijri"
 
 [[brand]]
 name = "Carhartt WIP"
+aliases = ["Carhartt WIP", "Carhartt"]
 
 [[brand]]
 name = "Stüssy"
@@ -585,6 +591,10 @@ name = "Barbour"
 [[brand]]
 name = "Fjällräven"
 query = "fjallraven"
+
+[[brand]]
+name = "Ray-Ban"
+suspicious_below = 25
 
 [[brand]]
 name = "lululemon"

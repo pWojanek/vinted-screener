@@ -12,13 +12,13 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
-from vinted_screener.brand_screener import BrandScreener
 from vinted_screener.ceneo import CeneoClient, CeneoPrices
 from vinted_screener.client import VintedClient
 from vinted_screener.models import normalize
 from vinted_screener.notify import send_discord
 from vinted_screener.report import SORT_KEYS, enable_windows_ansi, money, print_deals, sort_deals, write_html, write_json
 from vinted_screener.screener import Filters, ScanResult, Screener, describe_funnel
+from vinted_screener.search_screener import SearchScreener, parse_searches
 from vinted_screener.retail import RetailFinder, make_anthropic_client
 from vinted_screener.server import ScanService, serve
 from vinted_screener.state import State
@@ -56,12 +56,13 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--state", default=".vinted-screener/state.json", metavar="PLIK", help="plik stanu (cache median, widziane oferty)")
     scan.add_argument("-q", "--quiet", action="store_true", help="bez postępu na stderr")
     scan.add_argument("--debug", action="store_true", help="wypisuj zapytania do Vinted i początek odpowiedzi")
-    scan.add_argument("--brand", action="append", default=[], metavar="MARKA",
-                      help="tryb marek: skanuj wszystkie rzeczy marki, cenę retail ustala AI (można powtarzać)")
-    scan.add_argument("--query", default="", metavar="FRAZA", help="tryb marek: dopisz frazę do wyszukiwania, np. bluza")
-    scan.add_argument("--max-ai-cost", type=float, metavar="USD", help="tryb marek: limit kosztu AI na skan (domyślnie z watchlisty)")
-    scan.add_argument("--no-ceneo", action="store_true", help="tryb marek: nie szukaj cen na Ceneo.pl")
-    scan.add_argument("--no-seller", action="store_true", help="tryb marek: nie czytaj cen z opisów sprzedających")
+    scan.add_argument("-s", "--search", "--brand", dest="search", action="append", default=[], metavar="FRAZA",
+                      help='wyszukiwarka: marka albo typ rzeczy, np. "nike bluza", "kurtka puchowa" (można powtarzać)')
+    scan.add_argument("--any-brand", action="store_true",
+                      help="wyszukiwarka: przy frazie bez marki bierz wszystkie marki, nie tylko znane z watchlisty")
+    scan.add_argument("--max-ai-cost", type=float, metavar="USD", help="wyszukiwarka: limit kosztu AI na skan (domyślnie z watchlisty)")
+    scan.add_argument("--no-ceneo", action="store_true", help="wyszukiwarka: nie szukaj cen na Ceneo.pl")
+    scan.add_argument("--no-seller", action="store_true", help="wyszukiwarka: nie czytaj cen z opisów sprzedających")
 
     parser = argparse.ArgumentParser(
         prog="vinted-screener", description="Szuka na Vinted fajnych rzeczy wystawionych dużo poniżej ceny retail."
@@ -73,7 +74,7 @@ def build_parser() -> argparse.ArgumentParser:
     watch.add_argument("--webhook", default=os.environ.get("VINTED_DISCORD_WEBHOOK"), help="URL webhooka Discorda (lub zmienna VINTED_DISCORD_WEBHOOK)")
     watch.add_argument("--notify-existing", action="store_true", help="przy pierwszym skanie wyślij też okazje, które już wiszą")
     sub.add_parser("list", parents=[common], help="pokaż modele z watchlisty i progi cenowe")
-    serve = sub.add_parser("serve", parents=[common], help="strona w przeglądarce: wybierz, co skanować, i oglądaj wyniki na żywo")
+    serve = sub.add_parser("serve", parents=[common], help="strona w przeglądarce: wpisz, czego szukasz, i oglądaj wyniki na żywo")
     serve.add_argument("--port", type=int, default=8765, help="port lokalnego serwera (domyślnie: %(default)s)")
     serve.add_argument("--no-browser", action="store_true", help="nie otwieraj przeglądarki automatycznie")
     serve.add_argument("--html", default="okazje.html", metavar="PLIK", help="po każdym skanie zapisz też raport statyczny (pusty = nie)")
@@ -101,7 +102,7 @@ def cmd_list(settings: Settings, items: list[WatchItem], brands: list[Brand]) ->
             f"{i.name:<34.34} {i.category:<14.14} {money(i.retail, settings.currency):>9}"
             f" {money(i.max_price, settings.currency):>10} {money(i.suspicious_price, settings.currency):>10}"
         )
-    print(f"\nMarki (tryb marek, --brand): {', '.join(b.name for b in brands)}")
+    print(f"\nZnane marki (rozpoznawane w wyszukiwarce, --search): {', '.join(b.name for b in brands)}")
     return 0
 
 
@@ -114,9 +115,9 @@ def _loggers(args: argparse.Namespace) -> tuple[Callable[[str], None], Callable[
 def _make_runner(
     args: argparse.Namespace, settings: Settings, items: list[WatchItem], brands: list[Brand], state: State
 ) -> Callable[[], ScanResult]:
-    """Skan po modelach z watchlisty albo — z --brand — po markach z cenami z AI."""
+    """Skan po modelach z watchlisty albo — z --search — po wpisanych frazach (marka albo typ rzeczy)."""
     if args.pages:
-        settings = dataclasses.replace(settings, pages=args.pages, brand_pages=args.pages)
+        settings = dataclasses.replace(settings, pages=args.pages, search_pages=args.pages)
     filters = Filters(
         min_discount=args.min_discount,
         min_market_discount=args.min_market_discount,
@@ -126,29 +127,30 @@ def _make_runner(
     )
     log, debug = _loggers(args)
     client = VintedClient(domain=settings.domain, delay=settings.delay, debug=debug)
-    if not args.brand:
+    if not args.search:
         screener = Screener(client, settings, filters=filters, state=state, use_market=not args.no_market, log=log, debug=debug)
         return lambda: screener.screen(items)
 
-    known = {normalize(b.name): b for b in brands}
-    chosen = [known.get(normalize(name)) or Brand.custom(name, settings) for name in args.brand]
+    searches = parse_searches(args.search, brands, only_known_brands=not args.any_brand)
+    for search in searches:
+        log(f"„{search.text}” → Vinted: „{search.query}”, {search.scope}")
     ai_client = make_anthropic_client()
     if ai_client is None:
         print(NO_AI_NOTE, file=sys.stderr)
     max_cost = settings.max_ai_cost if args.max_ai_cost is None else args.max_ai_cost
     ceneo_client = CeneoClient(delay=settings.delay, debug=debug) if settings.ceneo and not args.no_ceneo else None
 
-    def run_brands() -> ScanResult:
+    def run_searches() -> ScanResult:
         # nowy licznik kosztu na każdy skan (w trybie watch: na każdy cykl); zapamiętane ceny zostają w State
         finder = RetailFinder(ai_client, state, max_usd=max_cost, debug=debug) if ai_client else None
-        screener = BrandScreener(
+        screener = SearchScreener(
             client, settings, finder, items, filters=filters, log=log, debug=debug, state=state,
             ceneo=CeneoPrices(ceneo_client, state, debug=debug) if ceneo_client else None,
-            read_descriptions=settings.seller_prices and not args.no_seller,
+            read_descriptions=settings.seller_prices and not args.no_seller, known_brands=brands,
         )
-        return screener.screen(chosen, args.query)
+        return screener.screen(searches)
 
-    return run_brands
+    return run_searches
 
 
 def _write_outputs(args: argparse.Namespace, result: ScanResult) -> None:
@@ -166,7 +168,8 @@ def _write_outputs(args: argparse.Namespace, result: ScanResult) -> None:
 
 
 def _summary(result: ScanResult, args: argparse.Namespace) -> str:
-    text = f"{len(result.deals)} okazji · {result.listings_seen} ogłoszeń · {result.scanned_items} modeli"
+    unit = "fraz" if args.search else "modeli"
+    text = f"{len(result.deals)} okazji · {result.listings_seen} ogłoszeń · {result.scanned_items} {unit}"
     if result.errors:
         text += f" · {len(result.errors)} błędów"
     if result.ai_cost_usd:
@@ -178,7 +181,8 @@ def _summary(result: ScanResult, args: argparse.Namespace) -> str:
     if funnel := describe_funnel(result.funnel):
         text += f"\nodpadło: {funnel}"
     if result.listings_seen and not result.deals and not args.debug:
-        text += "\nbrak okazji — przykładowe ogłoszenia z API pokaże: scan --only <model> --debug"
+        example = f'--search "{args.search[0]}"' if args.search else "--only <model>"
+        text += f"\nbrak okazji — przykładowe ogłoszenia z API pokaże: scan {example} --debug"
     return text
 
 

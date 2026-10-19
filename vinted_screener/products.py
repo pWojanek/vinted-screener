@@ -17,6 +17,14 @@ STOPWORDS = set(
     tylko raz razy zalozone noszone noszony nienoszone uzyte stylowe limitowane limited edition kolekcja collection
     original men women mens womens woman man kids with the and of in new used size sz para pary sztuki szt
     """.split()
+) | set(
+    # cechy, które ktoś wpisze w wyszukiwarkę ("kurtka puchowa"), a które nie są nazwą modelu
+    """
+    puchowa puchowy puchowe zimowa zimowy zimowe przejsciowa przejsciowy przejsciowe letnia letni letnie
+    jesienna jesienny wiosenna wiosenny ocieplana ocieplany ocieplane wodoodporna wodoodporny wodoodporne
+    skorzana skorzany skorzane jeansowa jeansowy jeansowe dzinsowa dzinsowy pikowana pikowany kapturem kaptur
+    rozpinana rozpinany oversize oversized dluga dlugi dlugie krotka krotki krotkie sportowa sportowy sportowe
+    """.split()
 )
 
 COLORS = set(

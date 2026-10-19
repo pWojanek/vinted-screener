@@ -75,12 +75,12 @@ class Settings:
     per_page: int = 96
     delay: float = 1.5
     market_ttl_hours: float = 12.0
-    brand_pages: int = 3  # tryb marek: stron po 96 najnowszych ogłoszeń na markę
-    max_ai_cost: float = 2.0  # tryb marek: limit kosztu AI na jeden skan, w USD
-    ceneo: bool = True  # tryb marek: ceny sklepowe z Ceneo.pl
-    seller_prices: bool = True  # tryb marek: ceny podane przez sprzedających w opisach
-    max_ceneo_per_brand: int = 25  # nowych zapytań do Ceneo na markę (zapamiętane nie liczą się)
-    max_descriptions_per_brand: int = 10  # opisów ogłoszeń pobieranych na markę
+    search_pages: int = 3  # wyszukiwarka: stron po 96 najnowszych ogłoszeń na frazę
+    max_ai_cost: float = 2.0  # wyszukiwarka: limit kosztu AI na jeden skan, w USD
+    ceneo: bool = True  # wyszukiwarka: ceny sklepowe z Ceneo.pl
+    seller_prices: bool = True  # wyszukiwarka: ceny podane przez sprzedających w opisach
+    max_ceneo_per_search: int = 25  # nowych zapytań do Ceneo na frazę (zapamiętane nie liczą się)
+    max_descriptions_per_search: int = 10  # opisów ogłoszeń pobieranych na frazę
 
     @property
     def site_url(self) -> str:
@@ -132,7 +132,7 @@ class WatchItem:
 
 @dataclass(frozen=True)
 class Brand:
-    """Marka do skanowania w trybie marek — bez listy modeli, ceny retail ustala AI."""
+    """Znana marka: rozpoznawana we frazie wyszukiwarki i w ogłoszeniach; ustala próg podejrzanej ceny."""
 
     name: str
     query: str
@@ -145,11 +145,15 @@ class Brand:
 
     @classmethod
     def custom(cls, name: str, settings: Settings) -> Brand:
-        """Marka wpisana ręcznie na stronie, spoza watchlisty."""
+        """Marka spoza watchlisty, np. z ogłoszenia przy wyszukiwaniu samego typu rzeczy."""
         return cls(name=name, query=name.lower(), aliases=(name,), suspicious_below=settings.suspicious_below)
 
+    def owns(self, brand: str) -> bool:
+        """Czy marka z ogłoszenia to ta marka ("Polo Ralph Lauren" → Ralph Lauren)."""
+        return brand_in(self._keys, brand)
+
     def matches(self, listing: Listing) -> bool:
-        return brand_in(self._keys, listing.brand) and not globally_excluded(normalize(f"{listing.title} {listing.brand}"))
+        return self.owns(listing.brand) and not globally_excluded(normalize(f"{listing.title} {listing.brand}"))
 
 
 def size_matches(size: str, wanted: tuple[str, ...]) -> bool:
@@ -172,6 +176,11 @@ def _str_tuple(value: Any, name: str) -> tuple[str, ...]:
     if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
         raise WatchlistError(f"{name} musi być listą tekstów")
     return tuple(value)
+
+
+def _setting(raw: dict[str, Any], key: str, old_key: str, default: Any) -> Any:
+    """Ustawienie z obsługą starej nazwy (sprzed wyszukiwarki), żeby własne watchlisty dalej działały."""
+    return raw.get(key, raw.get(old_key, default))
 
 
 def _read_toml(path: Path) -> dict[str, Any]:
@@ -226,12 +235,16 @@ def load_watchlist(path: str | Path) -> tuple[Settings, list[WatchItem]]:
         per_page=min(int(raw_settings.get("per_page", defaults.per_page)), 96),
         delay=float(raw_settings.get("delay", defaults.delay)),
         market_ttl_hours=float(raw_settings.get("market_ttl_hours", defaults.market_ttl_hours)),
-        brand_pages=int(raw_settings.get("brand_pages", defaults.brand_pages)),
+        search_pages=int(_setting(raw_settings, "search_pages", "brand_pages", defaults.search_pages)),
         max_ai_cost=float(raw_settings.get("max_ai_cost", defaults.max_ai_cost)),
         ceneo=bool(raw_settings.get("ceneo", defaults.ceneo)),
         seller_prices=bool(raw_settings.get("seller_prices", defaults.seller_prices)),
-        max_ceneo_per_brand=int(raw_settings.get("max_ceneo_per_brand", defaults.max_ceneo_per_brand)),
-        max_descriptions_per_brand=int(raw_settings.get("max_descriptions_per_brand", defaults.max_descriptions_per_brand)),
+        max_ceneo_per_search=int(
+            _setting(raw_settings, "max_ceneo_per_search", "max_ceneo_per_brand", defaults.max_ceneo_per_search)
+        ),
+        max_descriptions_per_search=int(
+            _setting(raw_settings, "max_descriptions_per_search", "max_descriptions_per_brand", defaults.max_descriptions_per_search)
+        ),
     )
 
     items = []

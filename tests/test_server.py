@@ -32,7 +32,9 @@ class FakeVinted:
             self.gate.wait(5)
         if text.startswith("nike"):
             return [raw_item("Nike dunk low panda", 150, id=1, size="42")]
-        return [raw_item("Adidas samba", 150, id=2, brand="adidas")]
+        if text.startswith("adidas"):
+            return [raw_item("Adidas samba", 150, id=2, brand="adidas")]
+        return [raw_item("Sneakersy Nike Dunk Low", 150, id=3), raw_item("Sneakersy", 50, id=4, brand="Reserved")]
 
     def item_description(self, item_id):
         self.calls.append({"description": item_id})
@@ -83,31 +85,31 @@ def wait_finished(base):
     raise AssertionError("skan się nie skończył")
 
 
-def test_page_and_brand_list(server):
+def test_page_and_search_suggestions(server):
     base, _ = server(ai=ai_client())
     code, page = call(base + "/")
-    assert code == 200 and '"mode": "app"' in page
-    data = json.loads(call(base + "/api/watchlist")[1])
-    assert data["brands"] == ["Nike", "adidas"]
+    assert code == 200 and '"mode": "app"' in page and 'id="s-input"' in page
+    data = json.loads(call(base + "/api/config")[1])
+    assert data["brands"] == ["Nike", "adidas"] and "kurtka puchowa" in data["types"] and data["max_searches"] == 10
     assert data["ai_enabled"] is True and data["ai_model"] == "claude-opus-5-5"
     assert data["max_ai_cost"] == SETTINGS.max_ai_cost and data["min_discount"] == 50
 
 
-def test_watchlist_says_when_ai_is_off(server):
+def test_config_says_when_ai_is_off(server):
     base, _ = server()
-    data = json.loads(call(base + "/api/watchlist")[1])
+    data = json.loads(call(base + "/api/config")[1])
     assert data["ai_enabled"] is False and data["ai_model"] is None
 
 
-def test_brand_scan_with_ai_retail_and_source(server, tmp_path):
+def test_search_with_ai_retail_and_source(server, tmp_path):
     vinted = FakeVinted()
     base, _ = server(vinted, ai_client())
-    code, body = call(base + "/api/scan", {"brands": ["nike"], "query": "buty", "sizes": ["42"], "min_discount": 50,
-                                          "max_ai_cost": 1.5})
+    code, body = call(base + "/api/scan", {"queries": ["Nike buty"], "sizes": ["42"], "min_discount": 50, "max_ai_cost": 1.5})
     assert code == 202, body
+    assert json.loads(body)["searches"] == [{"text": "Nike buty", "query": "nike buty", "brands": ["Nike"], "scope": "marka Nike"}]
     status = wait_finished(base)
     assert vinted.calls[0]["text"] == "nike buty"
-    assert status["done"] == 1 and status["total"] == 1
+    assert status["done"] == 1 and status["total"] == 1 and status["searches"][0]["scope"] == "marka Nike"
     deal = status["deals"][0]
     assert deal["model"] == "Nike Dunk Low Retro" and deal["retail"] == 499
     assert deal["retail_source"]["kind"] == "web" and deal["retail_source"]["url"].startswith("https://www.nike.com/")
@@ -116,19 +118,24 @@ def test_brand_scan_with_ai_retail_and_source(server, tmp_path):
     assert (tmp_path / "okazje.html").exists() and (tmp_path / "s.json").exists()
 
 
-def test_custom_brand_from_the_page(server):
+def test_type_search_takes_only_known_brands_unless_switched_off(server):
     vinted = FakeVinted()
     base, _ = server(vinted)
-    assert call(base + "/api/scan", {"brands": ["Zara Home"]})[0] == 202
-    wait_finished(base)
-    assert vinted.calls[0]["text"] == "zara home"
+    assert call(base + "/api/scan", {"queries": ["sneakersy", "SNEAKERSY", " "], "seller": False})[0] == 202
+    status = wait_finished(base)
+    assert [c["text"] for c in vinted.calls] == ["sneakersy"], "powtórzona fraza idzie raz"
+    assert status["searches"][0]["scope"] == "znane marki" and "inny model/marka 1" in status["funnel"]
+
+    call(base + "/api/scan", {"queries": ["sneakersy"], "only_known_brands": False, "seller": False})
+    status = wait_finished(base)
+    assert status["searches"][0]["scope"] == "wszystkie marki" and "inny model/marka" not in status["funnel"]
 
 
 def test_second_scan_is_rejected_while_running_and_stop_works(server):
     gate = threading.Event()
     base, _ = server(FakeVinted(gate))
-    assert call(base + "/api/scan", {"brands": ["Nike", "adidas"]})[0] == 202
-    code, body = call(base + "/api/scan", {"brands": ["Nike"]})
+    assert call(base + "/api/scan", {"queries": ["Nike", "adidas"]})[0] == 202
+    code, body = call(base + "/api/scan", {"queries": ["Nike"]})
     assert code == 409 and "trwa" in body
     assert call(base + "/api/stop", {})[0] == 200
     gate.set()
@@ -138,11 +145,12 @@ def test_second_scan_is_rejected_while_running_and_stop_works(server):
 
 @pytest.mark.parametrize(
     "body, error",
-    [({"brands": []}, "co najmniej jedną"), ({"brands": ["x" * 61]}, "60 znaków"),
-     ({"brands": ["Nike"], "min_discount": 150}, "min_discount"),
-     ({"brands": ["Nike"], "sizes": "42"}, "sizes"),
-     ({"brands": ["Nike"], "max_ai_cost": 500}, "limit kosztu"),
-     ({"brands": ["Nike"], "query": 5}, "fraza")],
+    [({"queries": []}, "wpisz, czego szukać"), ({"queries": [" "]}, "wpisz, czego szukać"), ({}, "wpisz"),
+     ({"queries": ["x" * 81]}, "80 znaków"), ({"queries": ["a"] * 11}, "najwyżej 10"), ({"queries": [5]}, "fraz"),
+     ({"queries": ["?!"]}, "litery albo cyfry"),
+     ({"queries": ["Nike"], "min_discount": 150}, "min_discount"),
+     ({"queries": ["Nike"], "sizes": "42"}, "sizes"),
+     ({"queries": ["Nike"], "max_ai_cost": 500}, "limit kosztu")],
 )
 def test_scan_validation(server, body, error):
     base, _ = server()
@@ -163,13 +171,13 @@ def test_rejects_foreign_host_and_non_json_post(server):
 def test_free_sources_can_be_switched_off_per_scan(server):
     vinted = FakeVinted()
     base, _ = server(vinted)
-    data = json.loads(call(base + "/api/watchlist")[1])
+    data = json.loads(call(base + "/api/config")[1])
     assert data["ceneo_available"] is False and data["seller_default"] is True
-    call(base + "/api/scan", {"brands": ["Nike"], "seller": False})
+    call(base + "/api/scan", {"queries": ["Nike"], "seller": False})
     wait_finished(base)
     assert not any("description" in c for c in vinted.calls)
 
-    call(base + "/api/scan", {"brands": ["Nike"]})
+    call(base + "/api/scan", {"queries": ["Nike"]})
     status = wait_finished(base)
     assert any("description" in c for c in vinted.calls)
     assert status["lookups"] == {"opisy": 1}

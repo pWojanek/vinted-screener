@@ -146,6 +146,8 @@ def test_bundled_brands_load():
         ("Ralph Lauren", "Polo Ralph Lauren", "Sweter", True),
         ("On", "Only", "Kurtka", False),
         ("On", "On Running", "Cloudmonster", True),
+        ("The North Face", "North Face", "Kurtka", True),
+        ("Carhartt WIP", "Carhartt", "Kurtka", True),
         ("Nike", "Nike", "Bluza nike replika", False),
         ("Nike", "Nike", "Bluza dla dziecka", False),
     ],
@@ -154,6 +156,14 @@ def test_brand_matching(brand_name, listing_brand, title, expected):
     settings, _ = load_watchlist(ROOT / "watchlist.toml")
     brand = {b.name: b for b in load_brands(ROOT / "watchlist.toml", settings)}[brand_name]
     assert brand.matches(listing(title, brand=listing_brand)) is expected
+
+
+def test_old_setting_names_from_brand_mode_still_work(tmp_path):
+    path = tmp_path / "w.toml"
+    path.write_text('[settings]\nbrand_pages = 5\nmax_ceneo_per_brand = 7\nmax_descriptions_per_search = 4\n'
+                    '[[item]]\nname = "A"\nquery = "a"\nretail = 100\n')
+    settings, _ = load_watchlist(path)
+    assert (settings.search_pages, settings.max_ceneo_per_search, settings.max_descriptions_per_search) == (5, 7, 4)
 
 
 def test_custom_brand_and_brand_errors(tmp_path):

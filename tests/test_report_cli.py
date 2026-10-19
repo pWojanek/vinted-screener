@@ -53,7 +53,7 @@ def test_discord_payloads_are_chunked():
 
 def test_cli_list(capsys):
     assert cli.main(["list", "-w", str(ROOT / "watchlist.toml"), "--only", "dunk"]) == 0
-    models, brands = capsys.readouterr().out.split("Marki", 1)
+    models, brands = capsys.readouterr().out.split("Znane marki", 1)
     assert "Nike Dunk Low" in models and "Jordan" not in models
     assert "Nike" in brands and "Carhartt WIP" in brands
 
@@ -87,7 +87,7 @@ def test_cli_rejects_bad_watchlist(tmp_path, capsys):
     assert "nie znaleziono" in capsys.readouterr().err
 
 
-def test_cli_scan_brand_mode_without_api_key_uses_watchlist(tmp_path, monkeypatch, capsys):
+def test_cli_search_without_api_key_uses_watchlist(tmp_path, monkeypatch, capsys):
     class FakeClient:
         def __init__(self, **kwargs) -> None:
             pass
@@ -100,7 +100,7 @@ def test_cli_scan_brand_mode_without_api_key_uses_watchlist(tmp_path, monkeypatc
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
     code = cli.main([
-        "scan", "-w", str(ROOT / "watchlist.toml"), "--brand", "nike", "--query", "buty", "--no-ceneo", "--no-seller",
+        "scan", "-w", str(ROOT / "watchlist.toml"), "--search", "nike buty", "--no-ceneo", "--no-seller",
         "--html", "", "--json", str(tmp_path / "o.json"), "--state", str(tmp_path / "s.json"), "-q",
     ])
     assert code == 0
@@ -111,7 +111,7 @@ def test_cli_scan_brand_mode_without_api_key_uses_watchlist(tmp_path, monkeypatc
     assert deals[0]["retail_source"]["kind"] == "watchlist"
 
 
-def test_watch_brand_mode_gets_fresh_ai_budget_each_cycle(tmp_path, monkeypatch):
+def test_watch_search_gets_fresh_ai_budget_each_cycle(tmp_path, monkeypatch):
     budgets = []
 
     class FakeFinder:
@@ -122,7 +122,7 @@ def test_watch_brand_mode_gets_fresh_ai_budget_each_cycle(tmp_path, monkeypatch)
     class StopAfterTwo(Exception):
         pass
 
-    def fake_screen(self, brands, query="", **kwargs):
+    def fake_screen(self, searches, **kwargs):
         if len(budgets) == 2:
             raise StopAfterTwo
         from vinted_screener.screener import ScanResult
@@ -131,7 +131,7 @@ def test_watch_brand_mode_gets_fresh_ai_budget_each_cycle(tmp_path, monkeypatch)
     monkeypatch.setattr(cli, "VintedClient", lambda **kw: None)
     monkeypatch.setattr(cli, "make_anthropic_client", lambda: object())
     monkeypatch.setattr(cli, "RetailFinder", FakeFinder)
-    monkeypatch.setattr(cli.BrandScreener, "screen", fake_screen)
+    monkeypatch.setattr(cli.SearchScreener, "screen", fake_screen)
     monkeypatch.setattr(cli.time, "sleep", lambda s: None)
     with pytest.raises(StopAfterTwo):
         cli.main(["watch", "-w", str(ROOT / "watchlist.toml"), "--brand", "nike", "--max-ai-cost", "1.5",
