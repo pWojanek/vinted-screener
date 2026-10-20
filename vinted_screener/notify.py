@@ -6,7 +6,7 @@ import json
 import urllib.request
 
 from vinted_screener.models import Deal
-from vinted_screener.report import money, source_text
+from vinted_screener.report import discount_text, money, source_text
 
 EMBEDS_PER_MESSAGE = 10  # limit Discorda
 
@@ -16,7 +16,7 @@ def discord_payloads(deals: list[Deal]) -> list[dict]:
     for d in deals:
         l = d.listing
         lines = [
-            f"**{money(l.total_price, l.currency)}** zamiast {money(d.retail, l.currency)} (−{d.retail_discount:.0%})",
+            f"**{money(l.total_price, l.currency)}** zamiast {money(d.retail, l.currency)} ({discount_text(d.retail_discount)})",
             f"retail wg {source_text(d.retail_source)}",
             f"{l.size or '?'} · {l.condition or '?'} · wynik {d.score:.0f}",
         ]

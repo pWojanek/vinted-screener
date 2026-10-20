@@ -86,6 +86,20 @@ def test_brand_with_type_and_only_candidates_go_to_web_lookup():
     assert funnel["price"] == 1
 
 
+def test_without_min_discount_everything_with_a_reference_is_shown():
+    from vinted_screener.screener import NO_MIN_DISCOUNT
+
+    dunk = make_item(name="Nike Dunk Low", retail=500)
+    vinted = FakeVinted([raw_item("Nike Dunk Low", 200, id=1), raw_item("Nike Dunk Low", 450, id=2),
+                         raw_item("Nike Dunk Low", 650, id=3), raw_item("Nike Dunk Low", 60, id=4)])
+    deals, funnel = SearchScreener(vinted, SETTINGS, None, watch_items=[dunk],
+                                   filters=Filters(min_discount=NO_MIN_DISCOUNT)).screen_search(NIKE_SEARCH)
+    assert sorted(d.listing.id for d in deals) == [1, 2, 3] and funnel["price"] == 0
+    assert funnel["suspicious"] == 1, "podejrzanie tanie nadal ukryte"
+    above = next(d for d in deals if d.listing.id == 3)
+    assert above.retail_discount < 0 and above.score == 0
+
+
 def test_watchlist_match_skips_identification_and_is_fallback_source():
     dunk = make_item(name="Nike Dunk Low", retail=500)
     vinted = FakeVinted([raw_item("Nike Dunk Low Panda", 200, id=1)])

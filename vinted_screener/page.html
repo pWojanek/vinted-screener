@@ -65,6 +65,7 @@ main { display: grid; gap: 14px; padding-bottom: 40px; grid-template-columns: re
 .photo { aspect-ratio: 3 / 4; background: var(--line) center / cover no-repeat; position: relative; }
 .badge { position: absolute; top: 8px; left: 8px; background: var(--good); color: #fff; font-weight: 700;
          padding: 3px 8px; border-radius: 999px; font-size: 14px; }
+.badge.up { background: var(--warn); }
 .score { position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,.65); color: #fff;
          padding: 3px 8px; border-radius: 999px; font-size: 12px; }
 .sus { position: absolute; bottom: 8px; left: 8px; right: 8px; background: var(--bad); color: #fff;
@@ -104,8 +105,8 @@ main { display: grid; gap: 14px; padding-bottom: 40px; grid-template-columns: re
       <label title="Dotyczy fraz bez marki, np. „kurtka puchowa”: bierze tylko marki z watchlisty (Nike, The North Face, Carhartt WIP…). Odznacz, żeby brać każdą markę.">
         <input type="checkbox" id="o-known" checked> przy samym typie rzeczy tylko znane marki</label>
       <label>Rozmiary <input type="text" id="o-sizes" placeholder="np. 43 L 42,5" title="Oddziel spacją; puste = wszystkie"></label>
-      <label>Min. rabat <select id="o-disc">
-        <option value="40">40%</option><option value="50">50%</option>
+      <label>Min. rabat <select id="o-disc" title="„dowolny” pokaże wszystko, co ma cenę odniesienia, także droższe od niej">
+        <option value="any">dowolny</option><option value="40">40%</option><option value="50">50%</option>
         <option value="60">60%</option><option value="70">70%</option></select></label>
       <label id="o-shops-label"><input type="checkbox" id="o-shops" checked> ceny ze sklepów</label>
       <label id="o-ceneo-label"><input type="checkbox" id="o-ceneo" checked> ceny z Ceneo</label>
@@ -128,7 +129,7 @@ main { display: grid; gap: 14px; padding-bottom: 40px; grid-template-columns: re
   <label>Kategoria <select id="cat"><option value="">wszystkie</option></select></label>
   <label>Produkt <select id="model"><option value="">wszystkie</option></select></label>
   <label>Min. rabat <select id="disc">
-    <option value="0">dowolny</option><option value="0.5">50%</option><option value="0.6">60%</option>
+    <option value="">dowolny</option><option value="0">od 0%</option><option value="0.5">50%</option><option value="0.6">60%</option>
     <option value="0.7">70%</option><option value="0.8">80%</option></select></label>
   <label>Źródło ceny <select id="src">
     <option value="">dowolne</option><option value="shop">ze sklepów (sklepy, Ceneo, AI)</option>
@@ -198,7 +199,8 @@ function card(d) {
   return `<div class="card">
     <a class="card-main" href="${esc(d.url)}" target="_blank" rel="noopener">
       <div class="photo" style="background-image:url('${esc(d.photo || "")}')">
-        <span class="badge">−${pct(d.retail_discount)}</span><span class="score">${d.score.toFixed(0)} pkt</span>
+        ${d.retail_discount >= 0 ? `<span class="badge">−${pct(d.retail_discount)}</span>`
+          : `<span class="badge up" title="drożej niż cena odniesienia">+${pct(-d.retail_discount)}</span>`}<span class="score">${d.score.toFixed(0)} pkt</span>
         ${d.suspicious ? '<span class="sus">⚠ podejrzanie tanio — sprawdź autentyczność</span>' : ""}
       </div>
       <div class="body">
@@ -224,7 +226,7 @@ let lastEmptyText = "Brak okazji dla wybranych filtrów.";
 function render(emptyText) {
   if (emptyText) lastEmptyText = emptyText;
   const q = $("q").value.trim().toLowerCase(), cat = $("cat").value, model = $("model").value, src = $("src").value;
-  const minDisc = parseFloat($("disc").value), showSus = $("sus").checked;
+  const minDisc = $("disc").value === "" ? -Infinity : parseFloat($("disc").value), showSus = $("sus").checked;
   const kind = (d) => (d.retail_source || {}).kind;
   const rows = deals.filter((d) =>
     (!cat || d.category === cat) && (!model || d.model === model) && d.retail_discount >= minDisc &&
@@ -412,7 +414,7 @@ if (BOOT.mode === "app") {
     const sizes = $("o-sizes").value.replace(/,\s/g, " ").split(/[\s;]+/).filter(Boolean);
     const body = {
       queries: list, only_known_brands: $("o-known").checked, sizes,
-      min_discount: Number($("o-disc").value), show_suspicious: $("o-sus").checked,
+      min_discount: $("o-disc").value === "any" ? "any" : Number($("o-disc").value), show_suspicious: $("o-sus").checked,
       shops: $("o-shops").checked, ceneo: $("o-ceneo").checked, seller: $("o-seller").checked,
     };
     if (config.ai_enabled) body.max_ai_cost = Math.min(50, Math.max(0, parseFloat($("o-cost").value) || 0));

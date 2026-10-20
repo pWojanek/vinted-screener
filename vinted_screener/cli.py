@@ -17,7 +17,7 @@ from vinted_screener.client import VintedClient
 from vinted_screener.models import normalize
 from vinted_screener.notify import send_discord
 from vinted_screener.report import SORT_KEYS, enable_windows_ansi, money, print_deals, sort_deals, write_html, write_json
-from vinted_screener.screener import Filters, ScanResult, Screener, describe_funnel
+from vinted_screener.screener import NO_MIN_DISCOUNT, Filters, ScanResult, Screener, describe_funnel
 from vinted_screener.search_screener import SearchScreener, parse_searches
 from vinted_screener.shops import ShopClient, ShopPrices
 from vinted_screener.retail import RetailFinder, make_anthropic_client
@@ -44,6 +44,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     scan = argparse.ArgumentParser(add_help=False, parents=[common])
     scan.add_argument("--min-discount", type=_percent, metavar="PROC", help="minimalny rabat od retailu w %% (nadpisuje watchlistę)")
+    scan.add_argument("--any-discount", action="store_true",
+                      help="bez progu rabatu: wszystko, co ma cenę odniesienia, także droższe od niej")
     scan.add_argument("--min-market-discount", type=_percent, metavar="PROC", help="minimalny rabat względem mediany cen na Vinted w %%")
     scan.add_argument("--max-price", type=float, metavar="KWOTA", help="maksymalna cena")
     scan.add_argument("--size", action="append", default=[], metavar="ROZM", help="rozmiar, np. 42 albo M (można powtarzać)")
@@ -132,7 +134,7 @@ def _make_runner(
     if args.pages:
         settings = dataclasses.replace(settings, pages=args.pages, search_pages=args.pages)
     filters = Filters(
-        min_discount=args.min_discount,
+        min_discount=NO_MIN_DISCOUNT if args.any_discount else args.min_discount,
         min_market_discount=args.min_market_discount,
         max_price=args.max_price,
         sizes=tuple(args.size),

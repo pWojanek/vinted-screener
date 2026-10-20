@@ -32,6 +32,14 @@ def money(value: float | None, currency: str = "PLN") -> str:
     return f"{value:,.0f} {unit}".replace(",", " ")
 
 
+def discount_text(discount: float) -> str:
+    """"-68%" dla okazji, "+12%" gdy oferta jest droższa niż cena odniesienia (skan bez progu rabatu).
+
+    Zwykły myślnik, bo konsola Windows w cp1250 nie ma znaku minusa (U+2212).
+    """
+    return f"-{discount:.0%}" if discount >= 0 else f"+{-discount:.0%}"
+
+
 def format_age(uploaded_at: datetime | None, now: datetime | None = None) -> str:
     if uploaded_at is None:
         return "?"
@@ -111,7 +119,7 @@ def print_deals(deals: list[Deal], out: TextIO | None = None, color: bool | None
                 market += f" ({-d.market_discount:+.0%})"
         warn = c("red", " ⚠ PODEJRZANIE TANIO") if d.suspicious else ""
         out.write(
-            f"{c('bold', score)}  {c('bold', f'-{d.retail_discount:.0%}')}  {c('bold', money(l.total_price, l.currency))}"
+            f"{c('bold', score)}  {c('bold', discount_text(d.retail_discount))}  {c('bold', money(l.total_price, l.currency))}"
             f"  {c('dim', f'(retail {money(d.retail, l.currency)} wg {source_text(d.retail_source)}{market})')}{warn}\n"
             f"       {c('cyan', d.model)} · rozm. {l.size or '?'} · {l.condition or '?'}"
             f" · {format_age(l.uploaded_at, now)} temu · ♥ {l.favourites}\n"

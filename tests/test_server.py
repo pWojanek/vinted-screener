@@ -118,6 +118,14 @@ def test_search_with_ai_retail_and_source(server, tmp_path):
     assert (tmp_path / "okazje.html").exists() and (tmp_path / "s.json").exists()
 
 
+def test_scan_without_min_discount(server):
+    vinted = FakeVinted()
+    base, _ = server(vinted, ai_client())
+    assert call(base + "/api/scan", {"queries": ["Nike"], "min_discount": "any", "seller": False})[0] == 202
+    status = wait_finished(base)
+    assert status["deals"] and "za drogie" not in status["funnel"]
+
+
 def test_type_search_takes_only_known_brands_unless_switched_off(server):
     vinted = FakeVinted()
     base, _ = server(vinted)
@@ -148,7 +156,7 @@ def test_second_scan_is_rejected_while_running_and_stop_works(server):
     [({"queries": []}, "wpisz, czego szukać"), ({"queries": [" "]}, "wpisz, czego szukać"), ({}, "wpisz"),
      ({"queries": ["x" * 81]}, "80 znaków"), ({"queries": ["a"] * 11}, "najwyżej 10"), ({"queries": [5]}, "fraz"),
      ({"queries": ["?!"]}, "litery albo cyfry"),
-     ({"queries": ["Nike"], "min_discount": 150}, "min_discount"),
+     ({"queries": ["Nike"], "min_discount": 150}, "min_discount"), ({"queries": ["Nike"], "min_discount": "all"}, "any"),
      ({"queries": ["Nike"], "sizes": "42"}, "sizes"),
      ({"queries": ["Nike"], "max_ai_cost": 500}, "limit kosztu")],
 )

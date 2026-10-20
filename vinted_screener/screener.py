@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import statistics
 from collections import Counter
 from collections.abc import Callable
@@ -147,9 +148,12 @@ def run_scan(
     return result
 
 
+NO_MIN_DISCOUNT = -math.inf  # bez progu rabatu: wszystko, co ma cenę odniesienia, także droższe od niej
+
+
 @dataclass(frozen=True)
 class Filters:
-    min_discount: float | None = None  # nadpisuje próg z watchlisty
+    min_discount: float | None = None  # nadpisuje próg z watchlisty; NO_MIN_DISCOUNT = bez progu
     min_market_discount: float | None = None
     max_price: float | None = None
     sizes: tuple[str, ...] = ()
@@ -199,9 +203,9 @@ class Screener:
     def screen_item(self, item: WatchItem) -> tuple[list[Deal], Counter[str]]:
         """Okazje dla jednego modelu + lejek: ile pobrano ("fetched") i ile odpadło na którym etapie."""
         min_discount = self.filters.min_discount if self.filters.min_discount is not None else item.min_discount
-        price_to = item.retail * (1 - min_discount)
+        price_to = item.retail * (1 - min_discount) if math.isfinite(min_discount) else None
         if self.filters.max_price is not None:
-            price_to = min(price_to, self.filters.max_price)
+            price_to = self.filters.max_price if price_to is None else min(price_to, self.filters.max_price)
         price_from = None if self.filters.show_suspicious else item.suspicious_price
 
         raw = self.client.search(
@@ -227,7 +231,7 @@ class Screener:
             if not size_matches(listing.size, sizes):
                 funnel["size"] += 1
                 continue
-            if listing.total_price > price_to:
+            if price_to is not None and listing.total_price > price_to:
                 funnel["price"] += 1
                 continue
             retail_discount = 1 - listing.total_price / item.retail

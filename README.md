@@ -128,7 +128,8 @@ Otwiera się strona `http://127.0.0.1:8765`.
 
 1. Wpisujesz, czego szukasz, np. „Nike bluza” albo „kurtka puchowa, Carhartt WIP”.
 2. Opcjonalnie ustawiasz rozmiary, rabat, źródła cen (sklepy, Ceneo, opisy sprzedających, limit kosztu AI)
-   i to, czy przy samym typie rzeczy brać tylko znane marki.
+   i to, czy przy samym typie rzeczy brać tylko znane marki. Min. rabat „dowolny” pokazuje wszystko, co ma
+   cenę odniesienia, także rzeczy droższe od niej. Te mają pomarańczową plakietkę „+12%” i 0 pkt.
 3. Klikasz **Szukaj okazji** albo wciskasz Enter.
 
 Okazje pojawiają się na bieżąco, a kliknięcie karty otwiera ogłoszenie na Vinted. Pole „Filtruj wyniki”
@@ -148,6 +149,7 @@ vinted-screener scan --search "ralph lauren sweter" --max-ai-cost 1
 vinted-screener scan                         # tryb modeli z watchlisty (bez AI)
 vinted-screener scan --size 43 --size L      # tylko Twoje rozmiary
 vinted-screener scan --category kurtki --min-discount 60
+vinted-screener scan --search "kurtka puchowa" --any-discount   # bez progu rabatu, z porównaniem do ceny
 vinted-screener watch --search "nike bluza" --interval 15   # co ~15 min, wypisuje tylko NOWE okazje
 vinted-screener list                         # modele z watchlisty, znane marki i sklepy
 ```

@@ -17,7 +17,7 @@ from vinted_screener.ceneo import CeneoClient, CeneoPrices
 from vinted_screener.client import VintedClient
 from vinted_screener.report import deal_to_dict, render_page, sort_deals, write_html
 from vinted_screener.retail import MODEL, RetailFinder
-from vinted_screener.screener import Filters, ScanResult, describe_funnel
+from vinted_screener.screener import NO_MIN_DISCOUNT, Filters, ScanResult, describe_funnel
 from vinted_screener.search_screener import MAX_SEARCH_LENGTH, TYPE_SUGGESTIONS, Search, SearchScreener, parse_searches
 from vinted_screener.shops import ShopClient, ShopPrices
 from vinted_screener.state import State
@@ -104,9 +104,9 @@ class ScanService:
             return 400, {"error": "wpisz, czego szukać, np. markę albo typ rzeczy"}
         if len(texts) > MAX_SEARCHES or not all(isinstance(t, str) and len(t.strip()) <= MAX_SEARCH_LENGTH for t in texts):
             return 400, {"error": f"najwyżej {MAX_SEARCHES} fraz po {MAX_SEARCH_LENGTH} znaków"}
-        min_discount = request.get("min_discount")
-        if min_discount is not None and (not isinstance(min_discount, (int, float)) or not 0 <= min_discount < 100):
-            return 400, {"error": "min_discount musi być procentem 0-99"}
+        min_discount = request.get("min_discount")  # "any" = bez progu
+        if min_discount not in (None, "any") and (not isinstance(min_discount, (int, float)) or not 0 <= min_discount < 100):
+            return 400, {"error": "min_discount musi być procentem 0-99 albo \"any\""}
         sizes = request.get("sizes") or []
         if not isinstance(sizes, list) or not all(isinstance(s, str) for s in sizes):
             return 400, {"error": "sizes musi być listą tekstów"}
@@ -115,7 +115,7 @@ class ScanService:
             return 400, {"error": f"limit kosztu AI musi być liczbą 0-{MAX_AI_COST:.0f} USD"}
 
         filters = Filters(
-            min_discount=None if min_discount is None else min_discount / 100,
+            min_discount=None if min_discount is None else NO_MIN_DISCOUNT if min_discount == "any" else min_discount / 100,
             sizes=tuple(sizes),
             show_suspicious=bool(request.get("show_suspicious")),
         )

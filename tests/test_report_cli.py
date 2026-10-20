@@ -24,6 +24,11 @@ def make_deal(title: str = "Nike Dunk Low Panda", price: float = 150, **kw) -> D
     return Deal(listing, item.name, item.category, item.retail, source, 0.68, 320.0, 0.5, 72.5, suspicious=False)
 
 
+def test_discount_text_marks_listings_above_retail():
+    from vinted_screener.report import discount_text
+    assert discount_text(0.68) == "-68%" and discount_text(-0.12) == "+12%" and discount_text(0.0) == "-0%"
+
+
 def test_print_deals_plain_text():
     out = io.StringIO()
     print_deals([make_deal()], out=out, color=False)

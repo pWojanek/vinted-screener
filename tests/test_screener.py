@@ -70,6 +70,21 @@ def test_suspicious_listings_hidden_unless_requested(dunk):
     assert len(deals) == 1 and deals[0].suspicious
 
 
+def test_without_min_discount_listings_above_retail_stay(dunk):
+    from vinted_screener.screener import NO_MIN_DISCOUNT
+
+    listings = [raw_item("Nike Dunk Low", 150, id=1), raw_item("Nike Dunk Low", 600, id=2)]
+    client = FakeClient(listings, listings)  # bez price_to atrapa oddaje listę „rynkową”
+    deals, _ = screener(client, filters=Filters(min_discount=NO_MIN_DISCOUNT), use_market=False).screen_item(dunk)
+    assert client.calls[0]["price_to"] is None
+    assert [(d.listing.id, d.score > 0) for d in sorted(deals, key=lambda d: d.listing.id)] == [(1, True), (2, False)]
+    assert deals[-1].retail_discount < 0
+
+    client = FakeClient([])
+    screener(client, filters=Filters(min_discount=NO_MIN_DISCOUNT, max_price=300), use_market=False).screen_item(dunk)
+    assert client.calls[0]["price_to"] == 300
+
+
 def test_filters(dunk):
     candidates = [raw_item("Nike Dunk Low", 150, id=1, size="42"), raw_item("Nike Dunk Low", 200, id=2, size="44")]
     deals, _ = screener(FakeClient(candidates), filters=Filters(sizes=("44",)), use_market=False).screen_item(dunk)
