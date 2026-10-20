@@ -16,6 +16,8 @@ from vinted_screener.products import declared_retail, guess_category, is_specifi
         ("Bluza Nike czarna L", ("Nike",), []),
         ("Kurtka puchowa The North Face Nuptse 700", ("The North Face", "North Face"), ["nuptse", "700"]),
         ("Kurtka przejściowa z kapturem Carhartt WIP Nimbus", ("Carhartt WIP", "Carhartt"), ["nimbus"]),
+        ("Nike swag y2k streetwear vintage", ("Nike",), []),
+        ("Buty do biegania Nike Pegasus Trail", ("Nike",), ["pegasus", "trail"]),
     ],
 )
 def test_product_tokens_drop_brand_sizes_colors_and_filler(title, aliases, tokens):

@@ -46,7 +46,8 @@ Pomarańczowe etykiety oznaczają cenę przybliżoną. W wynikach jest filtr **�
 „ze sklepów (sklepy, Ceneo, AI)” albo „bez szacunków i median”.
 
 **Jak screener czyta sklepy.** Wpisuje nazwę produktu w wyszukiwarkę sklepu i czyta dane produktów zapisane
-w stronie wyników (nazwa, cena regularna, cena promocyjna, link). Bierze produkt, którego nazwa zawiera
+w stronie wyników (nazwa, cena regularna, cena promocyjna, link). Gdy strona nie ma takich danych (Zalando),
+czyta kafelki produktów: nazwę i ceny, a przekreśloną cenę pierwotną bierze jako regularną. Bierze produkt, którego nazwa zawiera
 wszystkie słowa modelu. Gdy pasuje kilka, bierze najniższą cenę regularną, bo różne kolorystyki kosztują
 różnie, a niższa cena nie zawyży rabatu. Rzeczy dziecięce odpadają. Słowo kolorystyki z Vinted
 („Dunk Low Panda”) może zostać pominięte, a numer modelu („Air Max 90”) nie.
@@ -63,7 +64,7 @@ brands = ["Carhartt WIP"]
 ```
 
 Czy sklep działa, sprawdzisz komendą `scan --search "carhartt wip detroit" --debug`. Pokaże, ile produktów
-odczytano. Jeśli sklep nie zapisuje danych produktów w stronie, wyjdzie 0 i trzeba go usunąć.
+odczytano i czy z danych (JSON), czy z kafelków (HTML). Przy zerze pokaże też budowę strony.
 
 Żeby nie zasypać serwisów zapytaniami, sklepy dostają razem najwyżej 25 nowych zapytań na frazę, Ceneo też
 25, a opisów pobiera się najwyżej 10 na frazę. W pierwszej kolejności idą nowe rzeczy i te najtańsze

@@ -1,10 +1,12 @@
 """Ceny regularne ze sklepów internetowych z [[shop]]: Zalando i oficjalne sklepy marek (nike.com, adidas.pl…).
 
 Sklepy nie mają publicznego API, ale strona wyników wyszukiwania niesie dane produktów w osadzonym JSON-ie:
-`__NEXT_DATA__` (Next.js, np. Nike), `window.__hydrationDataConsume({...})` (Zalando), `JSON.parse("...")`
-albo JSON-LD. Zamiast osobnego parsera na sklep czytamy każdy taki JSON i bierzemy obiekty, które wyglądają
-jak produkt: nazwa + cena (+ link). Cena regularna (sprzed promocji) ma pierwszeństwo przed bieżącą.
-Gdy sklep zmieni stronę, `--debug` pokazuje, ile produktów udało się odczytać.
+`__NEXT_DATA__` (Next.js, np. Nike), `JSON.parse("...")` (adidas), JSON-LD albo odpowiedź API (Shopify).
+Zamiast osobnego parsera na sklep czytamy każdy taki JSON i bierzemy obiekty, które wyglądają jak produkt:
+nazwa + cena (+ link). Cena regularna (sprzed promocji) ma pierwszeństwo przed bieżącą.
+Gdy w JSON-ie nic nie ma (Zalando), czytamy kafelki z HTML: stronę dzielimy po linkach do produktów,
+a z każdego kawałka bierzemy tekst i ceny w zł; najwyższa z nich to cena regularna (przekreślona).
+Gdy sklep zmieni stronę, `--debug` pokazuje, ile produktów udało się odczytać, a przy zerze — budowę strony.
 """
 
 from __future__ import annotations
@@ -44,6 +46,18 @@ _IMAGE_RE = re.compile(r"\.(?:jpe?g|png|webp|gif|avif|svg)(?:\?|$)", re.IGNORECA
 _SCRIPT_RE = re.compile(r"<script\b[^>]*>(.*?)</script>", re.IGNORECASE | re.DOTALL)
 _JSON_START_RE = re.compile(r"[(=]\s*(?=[\[{])")  # foo({...}), x = {...}
 _JSON_STRING_RE = re.compile(r"\(\s*(\"(?:[^\"\\]|\\.)*\")\s*\)")  # JSON.parse("{\"a\":1}")
+# kafelki HTML: link do strony produktu ("…-a11.html", "/p/…", "/t/…") i tekst do następnego takiego linku
+_LINK_RE = re.compile(r"<a\b[^>]*?\bhref=\"([^\"#]+)\"", re.IGNORECASE)
+_PRODUCT_PATH_RE = re.compile(r"\.html(?:\?|$)|/(?:p|t|product|products)/", re.IGNORECASE)
+_PRICE_TEXT_RE = re.compile(
+    r"(?:€|EUR)\s?(\d+(?:[.,]\d{1,2})?)|(\d{1,3}(?:[ \u00a0.]\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)\s?(?:zł|PLN|€|EUR)",
+    re.IGNORECASE,
+)
+_HIDDEN_RE = re.compile(r"<(script|style|svg|noscript)\b.*?</\1>", re.IGNORECASE | re.DOTALL)
+_PERCENT_RE = re.compile(r"[-–−]?\s*\d+\s*%")
+TILE_CHARS = 12_000
+TILE_LABELS = {"sponsorowane", "nowosc", "promocja", "bestseller", "dodaj do ulubionych", "ulubione", "wiecej kolorow",
+               "dostepne w innych kolorach", "tylko online", "ekskluzywnie", "zrownowazony", "cena"}
 _AMOUNT_RE = re.compile(r"\d[\d\s .,']*")
 _TAG_RE = re.compile(r"<[^>]+>")
 MAX_FAILED_STARTS = 5000
@@ -193,7 +207,11 @@ def _product(node: dict[str, Any], shop: Shop) -> ShopProduct | None:
 
 
 def parse_products(page: str, shop: Shop) -> list[ShopProduct]:
-    """Produkty z wyników wyszukiwania sklepu, w kolejności ze strony, bez powtórzeń."""
+    """Produkty z wyników wyszukiwania sklepu, w kolejności ze strony, bez powtórzeń: z JSON-u, a gdy go nie ma — z HTML."""
+    return parse_json_products(page, shop) or parse_tile_products(page, shop)
+
+
+def parse_json_products(page: str, shop: Shop) -> list[ShopProduct]:
     found: dict[tuple[str, str], ShopProduct] = {}
 
     def walk(node: Any, depth: int = 0) -> None:
@@ -214,10 +232,63 @@ def parse_products(page: str, shop: Shop) -> list[ShopProduct]:
     return list(found.values())
 
 
+def _tile_texts(chunk: str) -> list[str]:
+    pieces = re.split(r"<[^>]+>", _HIDDEN_RE.sub(" ", chunk))
+    return [text for piece in pieces if (text := " ".join(html.unescape(piece).split()))]
+
+
+def parse_tile_products(page: str, shop: Shop) -> list[ShopProduct]:
+    """Kafelki produktów z HTML, bez zależności od nazw klas (Zalando je generuje i zmienia)."""
+    starts: list[tuple[int, str]] = []
+    seen: set[str] = set()
+    for match in _LINK_RE.finditer(page):
+        href = html.unescape(match.group(1))
+        if not _PRODUCT_PATH_RE.search(href) or _IMAGE_RE.search(href):
+            continue
+        url = _absolute(href, shop)
+        if url not in seen:
+            seen.add(url)
+            starts.append((match.start(), url))
+    products = []
+    for n, (start, url) in enumerate(starts):
+        end = starts[n + 1][0] if n + 1 < len(starts) else len(page)
+        texts = _tile_texts(page[start : min(end, start + TILE_CHARS)])
+        prices = [a for t in texts for m in _PRICE_TEXT_RE.finditer(t) if (a := parse_amount(m.group(1) or m.group(2)))]
+        words = [
+            t for t in texts
+            if not _PRICE_TEXT_RE.search(t) and not _PERCENT_RE.fullmatch(t) and normalize(t) not in TILE_LABELS
+        ]
+        if not prices or not words:
+            continue
+        # nazwa do wyświetlenia to pierwsze napisy (marka, model), a reszta kafelka też idzie do dopasowania
+        products.append(ShopProduct(
+            name=" ".join(words[:2])[:200], brand="", subtitle=" ".join(words[2:])[:300],
+            price=max(prices), discounted=min(prices) < max(prices), url=url,
+        ))
+        if len(products) >= MAX_PRODUCTS:
+            break
+    return products
+
 def _page_hint(page: str) -> str:
     title = re.search(r"<title>(.*?)</title>", page, re.IGNORECASE | re.DOTALL)
     body = page.split("<body", 1)[-1]
     return f"tytuł {title.group(1).strip()[:80]!r}" if title else " ".join(_TAG_RE.sub(" ", body).split())[:200]
+
+
+def _page_structure(page: str) -> str:
+    """Budowa strony, z której nic nie odczytano — wystarczy, żeby dopisać obsługę nowego kształtu danych."""
+    scripts = re.findall(r"<script\b([^>]*)>(.*?)</script>", page, re.IGNORECASE | re.DOTALL)
+    biggest = sorted(scripts, key=lambda s: -len(s[1]))[:3]
+    described = "; ".join(f"{len(b) // 1024} kB {' '.join(a.split())[:60]!r} {b.strip()[:80]!r}" for a, b in biggest)
+    text = " ".join(_TAG_RE.sub(" ", _HIDDEN_RE.sub(" ", page)).split())
+    price = re.search(r".{0,100}\d,\d{2}\s?zł.{0,60}", text)
+    links = {h for h in re.findall(r"href=\"([^\"]+)\"", page) if _PRODUCT_PATH_RE.search(h)}
+    return (
+        f"strona {len(page) // 1024} kB, skryptów {len(scripts)}, największe: {described or '—'}; "
+        f"linków do produktów: {len(links)}{f' np. {sorted(links)[0][:100]!r}' if links else ''}; "
+        f"<article>: {page.lower().count('<article')}; "
+        + (f"tekst przy cenie: {price.group(0)!r}" if price else "brak cen w zł w tekście strony")
+    )
 
 
 class ShopClient:
@@ -247,12 +318,17 @@ class ShopClient:
         if resp.status_code != 200:
             self._debug(f"{name} {url} → HTTP {resp.status_code}")
             return []
-        products = parse_products(resp.text or "", self.shop)
+        page = resp.text or ""
+        products, how = parse_json_products(page, self.shop), "JSON"
+        if not products:
+            products, how = parse_tile_products(page, self.shop), "kafelki HTML"
         if products:
             first = products[0]
-            self._debug(f"{name} {query!r}: {len(products)} produktów, pierwszy: {first.brand} {first.name} {first.price:.0f}")
+            label = " ".join(filter(None, (first.brand, first.name)))
+            self._debug(f"{name} {query!r}: {len(products)} produktów ({how}), pierwszy: {label} {first.price:.0f}")
         else:
-            self._debug(f"{name} {query!r}: 0 produktów — {_page_hint(resp.text or '')}")
+            self._debug(f"{name} {query!r}: 0 produktów — {_page_hint(page)}")
+            self._debug(f"{name} budowa strony: {_page_structure(page)}")
         return products
 
 

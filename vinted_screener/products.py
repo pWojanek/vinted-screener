@@ -24,6 +24,8 @@ STOPWORDS = set(
     jesienna jesienny wiosenna wiosenny ocieplana ocieplany ocieplane wodoodporna wodoodporny wodoodporne
     skorzana skorzany skorzane jeansowa jeansowy jeansowe dzinsowa dzinsowy pikowana pikowany kapturem kaptur
     rozpinana rozpinany oversize oversized dluga dlugi dlugie krotka krotki krotkie sportowa sportowy sportowe
+    biegania bieganie treningowe treningowy codzienne codzienny casual
+    swag y2k streetwear vintage hype drip unikat rarytas
     """.split()
 )
 

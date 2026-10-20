@@ -15,7 +15,8 @@ Screener okazji na Vinted (Python 3.11+, CLI + lokalna strona `serve`). Szczegó
 - Kwoty są w walucie z `[settings].currency` (domyślnie PLN). Porównania idą na `Listing.total_price`.
 - Tylko `client.py` zna adresy Vinted (`Listing.from_api` parsuje kształt odpowiedzi), a tylko `ceneo.py` adresy Ceneo.
   Adresy sklepów są w `[[shop]]` w `watchlist.toml`, a pobiera je tylko `shops.py` (jeden ogólny czytnik osadzonego JSON-u,
-  bez parsera na sklep; nowy kształt danych to nowy klucz w `NAME_KEYS`/`REGULAR_KEYS`/… i fixture w `tests/test_shops.py`).
+  a gdy go nie ma — kafelków HTML; bez parsera na sklep; nowy kształt danych to nowy klucz w `NAME_KEYS`/`REGULAR_KEYS`/…
+  albo `TILE_LABELS` i fixture w `tests/test_shops.py`). Linia `budowa strony` z `--debug` mówi, czego brakuje.
 - Nowy model dodajesz w `watchlist.toml`. Każda pozycja musi mieć `brands`, bo test to wymusza.
 - Nową znaną markę (rozpoznawaną w wyszukiwarce) dodajesz jako `[[brand]]`. Test sprawdza, że „<marka> bluza”
   ją rozpoznaje, a podpowiedzi typów (`TYPE_SUGGESTIONS`) nie udają marek.

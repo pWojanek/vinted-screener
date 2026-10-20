@@ -58,6 +58,35 @@ SHOPIFY_JSON = json.dumps({"resources": {"results": {"products": [
 ]}}})
 
 
+# Zalando bez danych w JSON-ie: kafelki w HTML z generowanymi klasami; marka i nazwa w <h3>, ceny w <span>,
+# przy promocji cena pierwotna, obecna i najniższa z 30 dni
+ZALANDO_TILES = """<html><head><title>Nike Dunk - Kup online | Katalog | Zalando</title>
+<script>window.feature = {a: 1}; (function(){ var x = 1; })();</script></head><body>
+<header><a href="https://www.zalando.pl/mezczyzni-home/">Mężczyźni</a><a href="/faq.html">Pomoc</a></header>
+<div class="_5qdMrS _75qWlu iOzucJ">
+ <article class="z5x6ht _0xLoFW JT3_zV mo6ZnF _78xIQ-" role="link">
+  <a href="https://www.zalando.pl/nike-sportswear-dunk-low-retro-sneakersy-niskie-whiteblack-ni112o0ss-a11.html" class="_LM tCiGa7">
+   <img src="https://img01.ztat.net/article/x.jpg?imwidth=300" alt="Nike Sportswear DUNK LOW RETRO"></a>
+  <span class="lystZ1">Sponsorowane</span>
+  <header><div class="cYylcv">
+   <h3 class="FtrEr_ lystZ1 FxZV-M">Nike Sportswear</h3>
+   <h3 class="sDq_FX lystZ1 FxZV-M">DUNK LOW RETRO - Sneakersy niskie - white/black</h3></div>
+   <section class="_0xLoFW"><p><span class="sDq_FX _4sa1cA dgII7d">Cena pierwotna:</span>
+    <span class="sDq_FX _4sa1cA dgII7d Km7l2y">599,00&nbsp;zł</span></p>
+    <p><span class="sDq_FX _4sa1cA FxZV-M">399,00&nbsp;zł</span><span class="lystZ1">-33%</span></p>
+    <p><span class="lystZ1">Najniższa cena z 30 dni: 449,00 zł</span></p></section></header>
+  <a href="https://www.zalando.pl/nike-sportswear-dunk-low-retro-sneakersy-niskie-whiteblack-ni112o0ss-a11.html">Rozmiary: 40 41 42</a>
+ </article>
+ <article class="z5x6ht _0xLoFW JT3_zV mo6ZnF _78xIQ-" role="link">
+  <a href="/nike-sportswear-dunk-low-unisex-sneakersy-niskie-ni114d0ag-a11.html?size=38"><img src="/i.jpg"></a>
+  <h3 class="FtrEr_">Nike Sportswear</h3><h3 class="sDq_FX">DUNK LOW UNISEX - Sneakersy niskie</h3>
+  <p><span class="sDq_FX">1 049,00 zł</span></p>
+ </article>
+ <article class="z5x6ht"><a href="https://www.zalando.pl/nike-sportswear-dunk-low-sneakersy-dla-dzieci-a13.html"></a>
+  <h3>Nike Sportswear</h3><h3>DUNK LOW - Sneakersy niskie dla dzieci</h3><span>299,00 zł</span></article>
+</div><footer><a href="https://www.zalando.pl/regulamin.html">Regulamin</a></footer></body></html>"""
+
+
 def names_prices(products):
     return [(p.name, p.price, p.discounted, p.url) for p in products]
 
@@ -77,6 +106,42 @@ def test_parse_zalando_hydration_prefers_formatted_original_price():
         ("DUNK LOW RETRO - Sneakersy", 329.0, False, "https://www.zalando.pl/nike-dunk-junior-a13.html"),
     ], "kwota 44900 bez tekstu może być w groszach — bez pewności nie ma ceny"
     assert products[0].brand == "Nike Sportswear"
+
+
+def test_parse_zalando_tiles_without_json():
+    products = parse_products(ZALANDO_TILES, ZALANDO)
+    assert names_prices(products) == [
+        ("Nike Sportswear DUNK LOW RETRO - Sneakersy niskie - white/black", 599.0, True,
+         "https://www.zalando.pl/nike-sportswear-dunk-low-retro-sneakersy-niskie-whiteblack-ni112o0ss-a11.html"),
+        ("Nike Sportswear DUNK LOW UNISEX - Sneakersy niskie", 1049.0, False,
+         "https://www.zalando.pl/nike-sportswear-dunk-low-unisex-sneakersy-niskie-ni114d0ag-a11.html?size=38"),
+        ("Nike Sportswear DUNK LOW - Sneakersy niskie dla dzieci", 299.0, False,
+         "https://www.zalando.pl/nike-sportswear-dunk-low-sneakersy-dla-dzieci-a13.html"),
+    ], "przekreślona cena pierwotna to cena regularna; linki bez cen (menu, stopka) odpadają"
+    assert "Rozmiary" in products[0].subtitle
+
+
+def test_zalando_tiles_give_regular_price_without_kids():
+    session = FakeSession({"www.zalando.pl": ZALANDO_TILES})
+    price = ShopPrices(clients(session, ZALANDO), State()).price_for(NIKE, "Nike Dunk Low", ["dunk", "low"])
+    assert price.price == 599.0 and price.source.label == "Zalando"
+    assert price.source.product == "Nike Sportswear DUNK LOW RETRO - Sneakersy niskie - white/black"
+    assert price.source.note == "cena regularna, teraz w promocji"
+
+
+def test_debug_shows_page_structure_when_nothing_parsed():
+    lines = []
+    page = "<title>Zalando</title><script id='x' type='text/plain'>window.__state = 'abc'</script><p>Brak</p>"
+    ShopClient(ZALANDO, delay=0, session=FakeSession({"www.zalando.pl": page}), sleep=lambda s: None,
+               debug=lines.append).search("nike")
+    assert "0 produktów" in lines[0]
+    assert "skryptów 1" in lines[1] and "window.__state" in lines[1] and "brak cen w zł" in lines[1]
+
+    lines.clear()
+    ShopClient(ZALANDO, delay=0, session=FakeSession({"www.zalando.pl": ZALANDO_TILES}), sleep=lambda s: None,
+               debug=lines.append).search("nike")
+    assert lines == ["Zalando 'nike': 3 produktów (kafelki HTML), pierwszy: "
+                     "Nike Sportswear DUNK LOW RETRO - Sneakersy niskie - white/black 599"]
 
 
 def test_parse_adidas_json_parse_string_with_sale_price():
